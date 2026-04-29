@@ -726,7 +726,7 @@ function setLandingContext(isJoining){if(isJoining){document.body.classList.add(
 function loadRoomList(){const el=$('#room-list');if(!el)return;const rooms=getSavedRooms();if(!rooms.length){el.innerHTML='<div class="room-list-empty">'+t('noRooms')+'</div>';return}el.innerHTML=rooms.map(r=>'<div class="room-item" data-room="'+r.id+'"><span class="room-id">#'+r.id+'</span><span class="room-meta"></span><button class="btn-join-sm" onclick="enterSavedRoom(\\''+r.id+'\\')">'+t('btnRoomJoin')+'</button></div>').join('')}
 function removeRoomLocal(id){try{const rooms=getSavedRooms().filter(r=>r.id!==id);localStorage.setItem('sc-rooms',JSON.stringify(rooms))}catch{}}
 function enterSavedRoom(id){const rooms=getSavedRooms();const r=rooms.find(x=>x.id===id);if(r)joinAndEnter(r.id,r.pin);else toast(t('errRoomNotFound'))}
-if(urlRoomId){setLandingContext(true);const params=new URLSearchParams(location.search);const pin=params.get('pin');if(pin){joinAndEnter(urlRoomId,pin)}else{$('#join-room-id').value=urlRoomId;$('#join-pin').focus()}}else{setLandingContext(false)}
+if(urlRoomId){const saved=getSavedRooms().find(r=>r.id===urlRoomId);if(saved){joinAndEnter(saved.id,saved.pin)}else{setLandingContext(true);const params=new URLSearchParams(location.search);const pin=params.get('pin');if(pin){joinAndEnter(urlRoomId,pin)}else{$('#join-room-id').value=urlRoomId;$('#join-pin').focus()}}}else{setLandingContext(false)}
 <\/script>
 </body>
 </html>`;

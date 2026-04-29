@@ -4,6 +4,8 @@ Temporary, self-destructing chat rooms. Create a room, share the link and PIN, c
 
 No registration required. No data persistence beyond the TTL.
 
+English | [中文](./README_CN.md)
+
 ## Features
 
 - **Ephemeral rooms** -- 6-character room ID + 4-digit PIN. Configurable TTL: 1h / 6h / 12h / 24h. Rooms auto-destroy after inactivity.

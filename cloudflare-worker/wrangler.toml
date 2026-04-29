@@ -1,0 +1,11 @@
+name = "share-chat"
+main = "src/worker.js"
+compatibility_date = "2024-01-01"
+
+[[kv_namespaces]]
+binding = "ROOMS"
+id = "30e0db67037747d5aff5c1a431e97e04"
+
+[[r2_buckets]]
+binding = "FILES"
+bucket_name = "share-chat-files"

@@ -1,0 +1,883 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>临时聊天室</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { height: 100%; overflow: hidden; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #111;
+  color: #e0e0e0;
+  display: flex;
+  justify-content: center;
+}
+.app {
+  width: 100%;
+  max-width: 700px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ===== Landing ===== */
+.landing {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  gap: 24px;
+}
+.landing h1 { font-size: 28px; font-weight: 700; }
+.landing .sub { color: #777; font-size: 14px; text-align: center; line-height: 1.6; }
+/* When joining via URL: hide create card */
+body.is-joining #create-card { display: none !important; }
+body.is-joining #join-divider { display: none !important; }
+body.is-joining .back-link { display: inline !important; }
+body.is-joining .landing .sub { /* keep sub visible but smaller */ }
+.landing .card {
+  width: 100%; max-width: 360px;
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 12px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.card label { font-size: 13px; color: #888; }
+.card input {
+  width: 100%;
+  background: #222;
+  border: 1px solid #333;
+  color: #e0e0e0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 15px;
+  outline: none;
+  font-family: monospace;
+  letter-spacing: 2px;
+}
+.card input:focus, .card select:focus { border-color: #5b7cff; }
+.card select {
+  width: 100%;
+  background: #222;
+  border: 1px solid #333;
+  color: #e0e0e0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 14px;
+  outline: none;
+  cursor: pointer;
+  appearance: none;
+}
+.card .pin-row { display: flex; gap: 8px; }
+.card .pin-row input { flex: 1; }
+.btn {
+  padding: 10px 20px;
+  font-size: 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  border: none;
+  font-weight: 500;
+  transition: background .15s;
+}
+.btn-primary { background: #3a5ae0; color: #fff; width: 100%; }
+.btn-primary:hover { background: #4b6bf0; }
+.btn-secondary { background: #2a2a2a; color: #e0e0e0; border: 1px solid #3a3a3a; }
+.btn-secondary:hover { background: #333; }
+.btn-danger { background: #5a2020; color: #e88; border: 1px solid #5a3030; }
+.btn-danger:hover { background: #6a2828; }
+.divider {
+  display: flex; align-items: center; gap: 12px;
+  color: #555; font-size: 12px;
+}
+.divider::before, .divider::after { content: ''; flex: 1; border-top: 1px solid #2a2a2a; }
+.back-link {
+  display: none;
+  text-align: center;
+  font-size: 13px;
+  color: #777;
+  text-decoration: none;
+  transition: color .15s;
+}
+.back-link:hover { color: #aaa; }
+
+/* ===== Chat ===== */
+.chat { display: none; flex: 1; flex-direction: column; height: 100%; }
+.chat.active { display: flex; }
+
+.header {
+  padding: 10px 16px;
+  background: #1a1a1a;
+  border-bottom: 1px solid #2a2a2a;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.header .title { font-size: 16px; font-weight: 600; white-space: nowrap; }
+.header .room-tag {
+  font-size: 11px;
+  color: #3a5ae0;
+  background: #1a1a30;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-family: monospace;
+}
+.header .ttl-info {
+  font-size: 10px;
+  color: #666;
+  white-space: nowrap;
+}
+.header .spacer { flex: 1; }
+.header button { font-size: 12px; padding: 5px 10px; }
+
+.messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.messages::-webkit-scrollbar { width: 4px; }
+.messages::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
+
+.empty-hint {
+  text-align: center; color: #444; font-size: 13px;
+  margin-top: 60px; line-height: 1.8;
+}
+
+/* Message bubble */
+.msg-row {
+  display: flex;
+  flex-direction: column;
+  max-width: 85%;
+}
+.msg-row.mine { align-self: flex-end; align-items: flex-end; }
+.msg-row.other { align-self: flex-start; align-items: flex-start; }
+
+.msg-sender {
+  font-size: 11px; color: #888; margin-bottom: 2px; padding: 0 6px;
+}
+.msg-bubble {
+  padding: 8px 12px;
+  border-radius: 12px;
+  font-size: 14px;
+  line-height: 1.5;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+.mine .msg-bubble { background: #2b3d8c; border-bottom-right-radius: 4px; }
+.other .msg-bubble { background: #2a2a2a; border-bottom-left-radius: 4px; }
+
+.msg-bubble img {
+  max-width: 260px; max-height: 300px;
+  border-radius: 8px; display: block; cursor: pointer;
+}
+.msg-bubble .file-attach {
+  display: flex; align-items: center; gap: 8px;
+  background: #1a1a1a; border-radius: 8px; padding: 10px 12px;
+}
+.file-attach .file-icon { font-size: 24px; }
+.file-attach .file-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.file-attach .file-name { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.file-attach .file-size { font-size: 11px; color: #777; }
+.file-attach a {
+  color: #7b8cff; font-size: 12px; text-decoration: none; flex-shrink: 0;
+}
+.file-attach a:hover { text-decoration: underline; }
+.msg-time { font-size: 10px; color: #555; margin-top: 2px; padding: 0 6px; }
+
+/* Input area */
+.input-area {
+  padding: 10px 16px;
+  background: #1a1a1a;
+  border-top: 1px solid #2a2a2a;
+  display: flex; gap: 8px; align-items: flex-end;
+  flex-shrink: 0;
+}
+.input-area textarea {
+  flex: 1;
+  background: #222; border: 1px solid #333; color: #e0e0e0;
+  border-radius: 8px; padding: 10px 12px;
+  font-size: 14px; font-family: inherit; resize: none;
+  max-height: 100px; outline: none; line-height: 1.4;
+}
+.input-area textarea:focus { border-color: #5b7cff; }
+.btn-icon {
+  width: 38px; height: 38px;
+  background: #222; border: 1px solid #333; color: #aaa;
+  border-radius: 8px; font-size: 18px; cursor: pointer;
+  flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+}
+.btn-icon:hover { background: #333; }
+.btn-send {
+  width: 56px; height: 38px;
+  background: #3a5ae0; border: none; color: #fff;
+  border-radius: 8px; font-size: 13px; cursor: pointer; flex-shrink: 0;
+}
+.btn-send:hover { background: #4b6bf0; }
+.btn-send:disabled { opacity: 0.4; cursor: default; }
+
+#file-input { display: none; }
+
+/* ===== Share Modal ===== */
+.modal-overlay {
+  display: none;
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,.7);
+  z-index: 200;
+  align-items: center; justify-content: center;
+}
+.modal-overlay.show { display: flex; }
+.modal {
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 16px;
+  padding: 28px 24px;
+  max-width: 360px; width: 90%;
+  text-align: center;
+  display: flex; flex-direction: column; gap: 16px;
+}
+.modal h2 { font-size: 18px; }
+.modal .qr-wrap {
+  background: #fff; border-radius: 12px;
+  padding: 12px; display: inline-block;
+  align-self: center;
+}
+.modal .qr-wrap canvas, .modal .qr-wrap img { display: block; }
+.modal .pin-display {
+  font-size: 32px; letter-spacing: 8px;
+  font-family: monospace; color: #ffcc00; font-weight: 700;
+}
+.modal .link-row {
+  display: flex; gap: 8px;
+}
+.modal .link-row input {
+  flex: 1;
+  background: #222; border: 1px solid #333; color: #ccc;
+  border-radius: 6px; padding: 8px 10px; font-size: 12px;
+  outline: none; font-family: monospace;
+}
+.modal .link-row button { font-size: 12px; padding: 6px 12px; white-space: nowrap; }
+.modal .hint { font-size: 12px; color: #777; }
+.modal .btn-row { display: flex; gap: 8px; }
+.modal .btn-row button { flex: 1; }
+
+/* Toast */
+.toast {
+  position: fixed; bottom: 100px; left: 50%; transform: translateX(-50%);
+  background: #333; color: #fff; padding: 8px 18px; border-radius: 20px;
+  font-size: 13px; opacity: 0; pointer-events: none; transition: opacity .3s; z-index: 300;
+}
+.toast.show { opacity: 1; }
+
+/* Mobile */
+@media (max-width: 500px) {
+  .header { padding: 8px 12px; }
+  .messages { padding: 8px 10px; }
+  .input-area { padding: 8px 10px; gap: 6px; }
+  .msg-bubble img { max-width: 200px; max-height: 240px; }
+  .landing h1 { font-size: 24px; }
+}
+</style>
+</head>
+<body>
+<div class="app" id="app">
+
+  <!-- ===== Landing View ===== -->
+  <div class="landing" id="view-landing">
+    <h1 id="landing-title">临时聊天室</h1>
+    <p class="sub" id="landing-sub">创建房间，分享链接和密码<br>无需注册，阅后即焚</p>
+
+    <!-- Create card (hidden when joining via URL) -->
+    <div class="card" id="create-card">
+      <label>消息有效期（无活动自动销毁）</label>
+      <select id="ttl-select">
+        <option value="1" selected>1 小时</option>
+        <option value="6">6 小时</option>
+        <option value="12">12 小时</option>
+        <option value="24">24 小时</option>
+      </select>
+      <button class="btn btn-primary" id="btn-create">+ 创建新房间</button>
+    </div>
+
+    <!-- Join card -->
+    <div class="card" id="join-card">
+      <div class="divider" id="join-divider">或加入已有房间</div>
+      <label>房间号</label>
+      <input id="join-room-id" placeholder="例如: abc123" maxlength="10" autocomplete="off">
+      <label>4位密码</label>
+      <input id="join-pin" type="text" placeholder="例如: 4829" maxlength="4" autocomplete="off" inputmode="numeric" pattern="[0-9]*">
+      <div id="turnstile-container" style="display:none;margin:8px 0;"></div>
+      <div id="join-error" style="display:none;font-size:13px;color:#e88;text-align:center;"></div>
+      <button class="btn btn-primary" id="btn-join">加入房间</button>
+      <a href="/" class="back-link" id="back-create">← 创建自己的房间</a>
+    </div>
+  </div>
+
+  <!-- ===== Chat View ===== -->
+  <div class="chat" id="view-chat">
+    <div class="header">
+      <span class="title">聊天室</span>
+      <span class="room-tag" id="room-tag"></span>
+      <span class="ttl-info" id="ttl-info"></span>
+      <span class="spacer"></span>
+      <button class="btn-secondary" id="btn-share" style="font-size:12px;padding:5px 10px;">分享</button>
+      <button class="btn-danger" id="btn-leave" style="font-size:12px;padding:5px 10px;">离开</button>
+    </div>
+
+    <div class="messages" id="messages">
+      <div class="empty-hint">👋 发送一条消息开始聊天<br><span style="font-size:11px">支持文字、图片、文件，Ctrl+V 粘贴图片</span></div>
+    </div>
+
+    <div class="input-area">
+      <button class="btn-icon" id="btn-attach" title="发送文件">📎</button>
+      <textarea id="text-input" rows="1" placeholder="输入消息... (Enter发送)"></textarea>
+      <button class="btn-send" id="btn-send" disabled>发送</button>
+    </div>
+  </div>
+
+  <!-- ===== Share Modal ===== -->
+  <div class="modal-overlay" id="share-modal">
+    <div class="modal">
+      <h2>分享房间</h2>
+      <p style="font-size:13px;color:#888">扫描二维码或发送链接</p>
+      <div class="qr-wrap" id="qr-container"></div>
+      <div class="pin-display" id="pin-display"></div>
+      <div class="link-row">
+        <input id="share-link" readonly onclick="this.select()">
+        <button class="btn-secondary" id="btn-copy-link">复制</button>
+      </div>
+      <p class="hint">链接和密码需要一起发给对方</p>
+      <div class="btn-row">
+        <button class="btn btn-secondary" id="btn-close-share">关闭</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<input type="file" id="file-input" multiple>
+
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js">
+</script>
+<script>
+// ============ State ============
+let roomId = null;
+let roomPin = null;
+let roomTtl = 1;
+let myName = '';
+let lastTs = 0;
+let renderedIds = new Set();
+let attachedFiles = [];
+let pollingTimer = null;
+let joinFailCount = 0;
+let turnstileEnabled = false;
+let turnstileToken = null;
+let turnstileWidgetId = null;
+let cooldownTimer = null;
+
+// ============ DOM refs ============
+const $ = s => document.querySelector(s);
+const landingView = $('#view-landing');
+const chatView = $('#view-chat');
+const messagesEl = $('#messages');
+const textInput = $('#text-input');
+const fileInput = $('#file-input');
+const btnSend = $('#btn-send');
+const roomTag = $('#room-tag');
+const shareModal = $('#share-modal');
+
+// ============ Toast ============
+function toast(msg) {
+  let t = $('.toast');
+  if (!t) { t = document.createElement('div'); t.className = 'toast'; document.body.appendChild(t); }
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(t._tid); t._tid = setTimeout(() => t.classList.remove('show'), 1800);
+}
+
+// ============ URL routing ============
+function getRoomFromURL() {
+  const m = location.pathname.match(/^\/room\/([a-z0-9]+)/);
+  if (m) return m[1];
+  return null;
+}
+
+// ============ Landing ============
+async function doCreateRoom() {
+  try {
+    const ttl = parseInt($('#ttl-select').value) || 1;
+    const body = { ttl };
+    if (turnstileToken) { body.turnstile = turnstileToken; turnstileToken = null; }
+
+    const res = await fetch('/api/room/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    const data = await res.json();
+
+    if (res.ok) {
+      resetJoinForm();
+      roomTtl = data.ttlHours || 1;
+      joinAndEnter(data.roomId, data.pin);
+      return;
+    }
+
+    if (data.blacklisted) {
+      showJoinError(data.error);
+      startCreateCooldown(data.retryAfter);
+      return;
+    }
+
+    if (data.retryAfter) {
+      showJoinError(data.error);
+      startCreateCooldown(data.retryAfter);
+      return;
+    }
+
+    if (data.requireTurnstile) {
+      showJoinError(data.error);
+      await maybeShowTurnstile();
+      $('#btn-create').textContent = '验证后创建';
+      return;
+    }
+
+    toast(data.error || '创建失败');
+  } catch { toast('网络错误'); }
+}
+
+function startCreateCooldown(ms) {
+  const btn = $('#btn-create');
+  btn.disabled = true;
+  clearInterval(cooldownTimer);
+  const end = Date.now() + ms;
+  const tick = () => {
+    const left = Math.ceil((end - Date.now()) / 1000);
+    if (left <= 0) {
+      btn.disabled = false;
+      btn.textContent = '+ 创建新房间';
+      showJoinError('');
+      clearInterval(cooldownTimer);
+      return;
+    }
+    const m = Math.floor(left / 60);
+    const s = left % 60;
+    btn.textContent = m ? `${m}分${s}秒后` : `${s}秒后`;
+  };
+  tick();
+  cooldownTimer = setInterval(tick, 1000);
+}
+
+$('#btn-create').addEventListener('click', doCreateRoom);
+
+$('#btn-join').addEventListener('click', () => {
+  const id = $('#join-room-id').value.trim().toLowerCase();
+  const pin = $('#join-pin').value.trim();
+  if (!id || pin.length !== 4) return toast('请输入房间号和4位密码');
+  joinAndEnter(id, pin);
+});
+
+// Allow Enter to join
+$('#join-pin').addEventListener('keydown', e => {
+  if (e.key === 'Enter') $('#btn-join').click();
+});
+$('#join-room-id').addEventListener('keydown', e => {
+  if (e.key === 'Enter') $('#join-pin').focus();
+});
+
+// ============ Join / Enter Room ============
+function showJoinError(msg) {
+  const el = $('#join-error');
+  el.textContent = msg;
+  el.style.display = msg ? '' : 'none';
+}
+
+function startCooldown(ms, btnText) {
+  const btn = $('#btn-join');
+  btn.disabled = true;
+  clearInterval(cooldownTimer);
+  const end = Date.now() + ms;
+  const tick = () => {
+    const left = Math.ceil((end - Date.now()) / 1000);
+    if (left <= 0) {
+      btn.disabled = false;
+      btn.textContent = btnText;
+      showJoinError('');
+      clearInterval(cooldownTimer);
+      return;
+    }
+    const m = Math.floor(left / 60);
+    const s = left % 60;
+    btn.textContent = m ? `${m}分${s}秒后重试` : `${s}秒后重试`;
+    showJoinError(`请等待 ${m ? m + '分' : ''}${s} 秒后再试`);
+  };
+  tick();
+  cooldownTimer = setInterval(tick, 1000);
+}
+
+function resetJoinForm() {
+  joinFailCount = 0;
+  clearInterval(cooldownTimer);
+  $('#btn-join').disabled = false;
+  $('#btn-join').textContent = '加入房间';
+  showJoinError('');
+  $('#turnstile-container').style.display = 'none';
+  turnstileToken = null;
+  if (turnstileWidgetId) { turnstile.reset(turnstileWidgetId); }
+}
+
+async function loadTurnstile() {
+  if (window.turnstile) return;
+  return new Promise((resolve) => {
+    const s = document.createElement('script');
+    s.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+    s.onload = resolve;
+    document.head.appendChild(s);
+  });
+}
+
+async function maybeShowTurnstile() {
+  if (!turnstileEnabled) return;
+  await loadTurnstile();
+  $('#turnstile-container').style.display = '';
+  if (!turnstileWidgetId) {
+    turnstileWidgetId = window.turnstile.render('#turnstile-container', {
+      sitekey: turnstileSiteKey,
+      callback: (token) => { turnstileToken = token; },
+      'expired-callback': () => { turnstileToken = null; },
+      theme: 'dark',
+    });
+  } else {
+    window.turnstile.reset(turnstileWidgetId);
+  }
+}
+
+async function joinAndEnter(id, pin) {
+  const body = { pin };
+  if (turnstileToken) {
+    body.turnstile = turnstileToken;
+    turnstileToken = null;
+  }
+
+  try {
+    const res = await fetch(`/api/room/${id}/join`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    const d = await res.json();
+
+    if (res.ok) {
+      resetJoinForm();
+      myName = d.name;
+      try {
+        const infoRes = await fetch(`/api/room/${id}/info`);
+        const info = await infoRes.json();
+        roomTtl = info.ttlHours || 1;
+      } catch { roomTtl = 1; }
+      enterRoom(id, pin);
+      return;
+    }
+
+    // Handle errors
+    joinFailCount = d.fails || joinFailCount;
+
+    if (d.blacklisted) {
+      showJoinError(d.error);
+      startCooldown(d.retryAfter, '加入房间');
+      return;
+    }
+
+    if (d.retryAfter && !d.requireTurnstile) {
+      showJoinError(d.error);
+      startCooldown(d.retryAfter, '加入房间');
+      return;
+    }
+
+    if (d.requireTurnstile) {
+      showJoinError(d.error);
+      await maybeShowTurnstile();
+      $('#btn-join').textContent = '验证后加入';
+      return;
+    }
+
+    showJoinError(d.error || '加入失败');
+    $('#join-pin').value = '';
+    $('#join-pin').focus();
+  } catch { toast('网络错误'); }
+}
+
+function enterRoom(id, pin) {
+  roomId = id;
+  roomPin = pin;
+
+  // Save to sessionStorage so refresh works
+  sessionStorage.setItem('roomId', id);
+  sessionStorage.setItem('roomPin', pin);
+
+  // Update URL
+  history.replaceState(null, '', `/room/${id}`);
+
+  // Switch view
+  landingView.style.display = 'none';
+  chatView.classList.add('active');
+  roomTag.textContent = `#${id}`;
+  $('#ttl-info').textContent = `${roomTtl}h 后过期`;
+
+  // Reset state
+  lastTs = 0;
+  renderedIds.clear();
+  messagesEl.innerHTML = '<div class="empty-hint">👋 发送一条消息开始聊天<br><span style="font-size:11px">支持文字、图片、文件，Ctrl+V 粘贴图片</span></div>';
+
+  // Start polling
+  fetchMessages();
+  if (pollingTimer) clearInterval(pollingTimer);
+  pollingTimer = setInterval(fetchMessages, 2000);
+}
+
+// ============ Leave ============
+$('#btn-leave').addEventListener('click', () => {
+  if (pollingTimer) clearInterval(pollingTimer);
+  sessionStorage.removeItem('roomId');
+  sessionStorage.removeItem('roomPin');
+  roomId = null; roomPin = null; myName = '';
+  history.replaceState(null, '', '/');
+  chatView.classList.remove('active');
+  landingView.style.display = '';
+});
+
+// ============ Share ============
+$('#btn-share').addEventListener('click', () => {
+  const link = `${location.origin}/room/${roomId}`;
+  $('#share-link').value = link;
+  $('#pin-display').textContent = roomPin;
+
+  // Generate QR
+  const qrContainer = $('#qr-container');
+  qrContainer.innerHTML = '';
+  if (typeof QRCode !== 'undefined') {
+    new QRCode(qrContainer, {
+      text: `${link}?pin=${roomPin}`,
+      width: 180, height: 180,
+      colorDark: '#000', colorLight: '#fff',
+    });
+  } else {
+    qrContainer.innerHTML = '<p style="color:#888;font-size:13px">二维码加载失败<br>请使用下方链接</p>';
+  }
+  shareModal.classList.add('show');
+});
+
+$('#btn-close-share').addEventListener('click', () => shareModal.classList.remove('show'));
+shareModal.addEventListener('click', e => { if (e.target === shareModal) shareModal.classList.remove('show'); });
+
+$('#btn-copy-link').addEventListener('click', () => {
+  const link = $('#share-link').value;
+  const text = `聊天室: ${link}\n密码: ${roomPin}`;
+  navigator.clipboard.writeText(text).then(() => toast('已复制链接和密码'));
+});
+
+// ============ File attachment ============
+$('#btn-attach').addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', () => {
+  for (const f of fileInput.files) attachedFiles.push(f);
+  fileInput.value = '';
+  updateSendButton();
+  if (attachedFiles.length) toast(`已选择 ${attachedFiles.length} 个文件`);
+});
+
+// ============ Paste ============
+document.addEventListener('paste', e => {
+  if (document.activeElement === textInput) return;
+  if (!chatView.classList.contains('active')) return;
+  const items = e.clipboardData?.items;
+  if (!items) return;
+  for (const item of items) {
+    if (item.type.startsWith('image/')) {
+      e.preventDefault();
+      attachedFiles.push(item.getAsFile());
+      updateSendButton();
+      toast('图片已添加');
+    }
+  }
+});
+
+function updateSendButton() {
+  const hasText = textInput.value.trim().length > 0;
+  btnSend.disabled = !hasText && !attachedFiles.length;
+}
+
+textInput.addEventListener('input', () => {
+  updateSendButton();
+  textInput.style.height = 'auto';
+  textInput.style.height = Math.min(textInput.scrollHeight, 100) + 'px';
+});
+
+// ============ Send ============
+async function sendMessage() {
+  const text = textInput.value.trim();
+  const files = [...attachedFiles];
+  if (!text && !files.length) return;
+
+  btnSend.disabled = true;
+  textInput.value = '';
+  textInput.style.height = 'auto';
+  attachedFiles = [];
+  updateSendButton();
+
+  for (let i = 0; i < Math.max(1, files.length); i++) {
+    const fd = new FormData();
+    fd.append('pin', roomPin);
+    fd.append('sender', myName);
+    if (i === 0 && text) fd.append('text', text);
+    if (files[i]) fd.append('file', files[i]);
+
+    try {
+      const res = await fetch(`/api/room/${roomId}/send`, { method: 'POST', body: fd });
+      if (!res.ok) { toast('发送失败'); btnSend.disabled = false; return; }
+    } catch { toast('网络错误'); btnSend.disabled = false; return; }
+  }
+  fetchMessages();
+}
+
+btnSend.addEventListener('click', sendMessage);
+textInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+});
+
+// ============ Fetch & render ============
+async function fetchMessages() {
+  try {
+    const res = await fetch(`/api/room/${roomId}/messages?since=${lastTs}&pin=${roomPin}`);
+    if (res.status === 403) { toast('密码错误'); return; }
+    if (res.status === 404) { toast('房间已过期'); return; }
+    const list = await res.json();
+    if (list.length) {
+      const hint = messagesEl.querySelector('.empty-hint');
+      if (hint) hint.remove();
+
+      const wasAtBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 80;
+      for (const msg of list) {
+        if (renderedIds.has(msg.id)) continue;
+        renderedIds.add(msg.id);
+        if (msg.createdAt > lastTs) lastTs = msg.createdAt;
+        renderMessage(msg);
+      }
+      if (wasAtBottom) messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+  } catch {}
+}
+
+function renderMessage(msg) {
+  const isMine = msg.sender === myName;
+  const row = document.createElement('div');
+  row.className = 'msg-row ' + (isMine ? 'mine' : 'other');
+  row.id = 'm-' + msg.id;
+
+  const timeStr = new Date(msg.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+
+  let bubbleParts = [];
+  if (msg.text) bubbleParts.push(escapeHtml(msg.text));
+  if (msg.hasFile) {
+    const fileUrl = `/api/room/${roomId}/file/${msg.id}?pin=${roomPin}`;
+    if (msg.type === 'image') {
+      bubbleParts.push(`<img src="${fileUrl}" alt="${msg.fileName || '图片'}" onclick="window.open('${fileUrl}')" loading="lazy">`);
+    } else {
+      const sizeStr = msg.fileSize ? formatSize(msg.fileSize) : '';
+      bubbleParts.push(`
+        <div class="file-attach">
+          <span class="file-icon">📄</span>
+          <div class="file-info">
+            <span class="file-name">${escapeHtml(msg.fileName || '文件')}</span>
+            ${sizeStr ? `<span class="file-size">${sizeStr}</span>` : ''}
+          </div>
+          <a href="${fileUrl}" download>下载</a>
+        </div>`);
+    }
+  }
+
+  row.innerHTML = `
+    <div class="msg-sender">${escapeHtml(msg.sender)}</div>
+    <div class="msg-bubble">${bubbleParts.join('<div style="margin:4px 0"></div>')}</div>
+    <div class="msg-time">${timeStr}</div>`;
+  messagesEl.appendChild(row);
+}
+
+function escapeHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function formatSize(bytes) {
+  if (!bytes) return '';
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+// ============ Init ============
+let turnstileSiteKey = '';
+
+// Check Turnstile config
+(async () => {
+  try {
+    const r = await fetch('/api/turnstile/config');
+    const d = await r.json();
+    turnstileEnabled = d.enabled;
+    turnstileSiteKey = d.siteKey;
+  } catch {}
+})();
+
+// Check URL for room
+const urlRoomId = getRoomFromURL();
+// Check sessionStorage for reconnection
+const savedRoomId = sessionStorage.getItem('roomId');
+const savedPin = sessionStorage.getItem('roomPin');
+
+function setLandingContext(isJoining) {
+  if (isJoining) {
+    document.body.classList.add('is-joining');
+    $('#landing-title').textContent = '加入聊天室';
+    $('#landing-sub').innerHTML = '输入密码以加入房间<br><span style="font-size:11px;color:#555">无密码无法进入</span>';
+    $('#btn-join').textContent = '加入房间';
+    $('#btn-join').className = 'btn btn-primary';
+  } else {
+    document.body.classList.remove('is-joining');
+    $('#landing-title').textContent = '临时聊天室';
+    $('#landing-sub').innerHTML = '创建房间，分享链接和密码<br>无需注册，阅后即焚';
+    $('#btn-join').textContent = '加入房间';
+    $('#btn-join').className = 'btn btn-secondary';
+  }
+}
+
+if (savedRoomId && savedPin) {
+  // Re-join existing room
+  joinAndEnter(savedRoomId, savedPin);
+} else if (urlRoomId) {
+  // URL has room ID — show join form prominently, hide create
+  setLandingContext(true);
+  const params = new URLSearchParams(location.search);
+  const pin = params.get('pin');
+  if (pin) {
+    joinAndEnter(urlRoomId, pin);
+  } else {
+    $('#join-room-id').value = urlRoomId;
+    $('#join-pin').focus();
+  }
+} else {
+  setLandingContext(false);
+}
+</script>
+</body>
+</html>

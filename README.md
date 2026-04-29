@@ -1,6 +1,6 @@
-# Share Chat
+# File Share
 
-Temporary, self-destructing chat rooms. Create a room, share the link and PIN, chat with files and images -- everything auto-expires after inactivity.
+Temporary file sharing rooms. Create a room, share the link and PIN, send files and images -- everything auto-expires after inactivity.
 
 **Demo: [10086.review](https://10086.review)**
 

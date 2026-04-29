@@ -1,27 +1,78 @@
 // Cloudflare Worker - Share Chat
 // Uses KV for storage, supports file uploads via FormData
 
-const TTL_OPTIONS = [1, 6, 12, 24];
+interface Env {
+  ROOMS: KVNamespace;
+  FILES: R2Bucket;
+  TURNSTILE_SECRET_KEY: string;
+  TURNSTILE_SITE_KEY: string;
+}
 
-const names = ['Alice', 'Bob', 'Charlie', 'David', 'Eve', 'Frank', 'Grace',
+interface Room {
+  id: string;
+  pin: string;
+  ttlHours: number;
+  createdAt: number;
+  lastActivityAt: number;
+  ipNames: Record<string, string>;
+  messages: Message[];
+}
+
+interface Message {
+  id: string;
+  sender: string;
+  type: 'text' | 'image' | 'file';
+  text: string | null;
+  fileName: string | null;
+  r2Key: string | null;
+  fileMime: string | null;
+  fileSize: number | null;
+  createdAt: number;
+}
+
+interface RoomIndexEntry {
+  id: string;
+  createdAt: number;
+  lastActivityAt: number;
+  ttlHours: number;
+  participants: number;
+  messageCount: number;
+}
+
+interface FailData {
+  count: number;
+  lastFail: number;
+}
+
+interface BlacklistEntry {
+  until: number;
+}
+
+interface CreateTracker {
+  timestamps: number[];
+}
+
+const TTL_OPTIONS: number[] = [1, 6, 12, 24];
+
+const names: string[] = ['Alice', 'Bob', 'Charlie', 'David', 'Eve', 'Frank', 'Grace',
   'Henry', 'Iris', 'Jack', 'Kate', 'Leo', 'Mia', 'Noah', 'Olivia',
   'Peter', 'Quinn', 'Rose', 'Sam', 'Tina', 'Umar', 'Vera', 'Will',
   'Xena', 'Yuki', 'Zoe'];
 
 // ============ Helpers ============
-function genRoomId() {
+function genRoomId(): string {
   const chars = 'abcdefghijkmnpqrstuvwxyz23456789';
   let s = '';
   for (let i = 0; i < 6; i++) s += chars[Math.floor(Math.random() * chars.length)];
   return s;
 }
-function genPin() {
+function genPin(): string {
   return String(Math.floor(1000 + Math.random() * 9000));
 }
-function clientIp(request) {
+function clientIp(request: Request): string {
   return request.headers.get('CF-Connecting-IP') || request.headers.get('x-forwarded-for') || 'unknown';
 }
-function json(data, status = 200) {
+function json(data: unknown, status: number = 200): Response {
   return new Response(JSON.stringify(data), {
     status,
     headers: { 'Content-Type': 'application/json' },
@@ -29,54 +80,53 @@ function json(data, status = 200) {
 }
 
 // ============ KV Storage ============
-async function getRoom(kv, roomId) {
-  const raw = await kv.get(`room:${roomId}`, 'json');
-  return raw;
+async function getRoom(kv: KVNamespace, roomId: string): Promise<Room | null> {
+  return await kv.get<Room>(`room:${roomId}`, 'json');
 }
-async function saveRoom(kv, room) {
+async function saveRoom(kv: KVNamespace, room: Room): Promise<void> {
   await kv.put(`room:${room.id}`, JSON.stringify(room), { expirationTtl: room.ttlHours * 3600 + 3600 });
 }
-async function deleteRoom(kv, roomId) {
+async function deleteRoom(kv: KVNamespace, roomId: string): Promise<void> {
   await kv.delete(`room:${roomId}`);
 }
 
 // ============ Rate Limiting ============
-async function getFailCount(kv, ip, roomId) {
-  const raw = await kv.get(`fail:${ip}:${roomId}`, 'json');
+async function getFailCount(kv: KVNamespace, ip: string, roomId: string): Promise<FailData> {
+  const raw = await kv.get<FailData>(`fail:${ip}:${roomId}`, 'json');
   return raw || { count: 0, lastFail: 0 };
 }
-async function setFailCount(kv, ip, roomId, data) {
+async function setFailCount(kv: KVNamespace, ip: string, roomId: string, data: FailData): Promise<void> {
   await kv.put(`fail:${ip}:${roomId}`, JSON.stringify(data), { expirationTtl: 3600 });
 }
-async function deleteFailCount(kv, ip, roomId) {
+async function deleteFailCount(kv: KVNamespace, ip: string, roomId: string): Promise<void> {
   await kv.delete(`fail:${ip}:${roomId}`);
 }
-async function getBlacklist(kv, ip) {
-  const raw = await kv.get(`blacklist:${ip}`, 'json');
+async function getBlacklist(kv: KVNamespace, ip: string): Promise<BlacklistEntry | null> {
+  const raw = await kv.get<BlacklistEntry>(`blacklist:${ip}`, 'json');
   if (raw && Date.now() < raw.until) return raw;
   return null;
 }
-async function setBlacklist(kv, ip, until) {
+async function setBlacklist(kv: KVNamespace, ip: string, until: number): Promise<void> {
   await kv.put(`blacklist:${ip}`, JSON.stringify({ until }), { expirationTtl: Math.ceil((until - Date.now()) / 1000) + 60 });
 }
-async function getCreateTracker(kv, ip) {
-  const raw = await kv.get(`create:${ip}`, 'json');
+async function getCreateTracker(kv: KVNamespace, ip: string): Promise<CreateTracker> {
+  const raw = await kv.get<CreateTracker>(`create:${ip}`, 'json');
   return raw || { timestamps: [] };
 }
-async function setCreateTracker(kv, ip, data) {
+async function setCreateTracker(kv: KVNamespace, ip: string, data: CreateTracker): Promise<void> {
   await kv.put(`create:${ip}`, JSON.stringify(data), { expirationTtl: 3600 });
 }
-async function getCreateBlacklist(kv, ip) {
-  const raw = await kv.get(`create-bl:${ip}`, 'json');
+async function getCreateBlacklist(kv: KVNamespace, ip: string): Promise<BlacklistEntry | null> {
+  const raw = await kv.get<BlacklistEntry>(`create-bl:${ip}`, 'json');
   if (raw && Date.now() < raw.until) return raw;
   return null;
 }
-async function setCreateBlacklist(kv, ip, until) {
+async function setCreateBlacklist(kv: KVNamespace, ip: string, until: number): Promise<void> {
   await kv.put(`create-bl:${ip}`, JSON.stringify({ until }), { expirationTtl: Math.ceil((until - Date.now()) / 1000) + 60 });
 }
 
 // ============ Name Assignment ============
-function assignName(room, ip) {
+function assignName(room: Room, ip: string): string {
   if (!room.ipNames) room.ipNames = {};
   if (room.ipNames[ip]) return room.ipNames[ip];
   const used = new Set(Object.values(room.ipNames));
@@ -89,52 +139,50 @@ function assignName(room, ip) {
 }
 
 // ============ Turnstile ============
-async function verifyTurnstile(secret, token, ip) {
+async function verifyTurnstile(secret: string, token: string, ip: string): Promise<boolean> {
   if (!secret) return true;
   try {
     const body = new URLSearchParams({ secret, response: token, remoteip: ip });
     const r = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', { method: 'POST', body });
-    const data = await r.json();
+    const data: { success?: boolean } = await r.json() as { success?: boolean };
     return data.success === true;
   } catch { return false; }
 }
 
 // ============ Room Index ============
-async function getRoomIndex(kv) {
-  const raw = await kv.get('rooms:index', 'json');
+async function getRoomIndex(kv: KVNamespace): Promise<RoomIndexEntry[]> {
+  const raw = await kv.get<RoomIndexEntry[]>('rooms:index', 'json');
   if (!raw) return [];
   const now = Date.now();
   return raw.filter(r => now - r.lastActivityAt < (r.ttlHours || 1) * 3600000);
 }
-async function addRoomToIndex(kv, room) {
+async function addRoomToIndex(kv: KVNamespace, room: Room): Promise<void> {
   const index = await getRoomIndex(kv);
   index.push({ id: room.id, createdAt: room.createdAt, lastActivityAt: room.lastActivityAt, ttlHours: room.ttlHours, participants: Object.keys(room.ipNames || {}).length, messageCount: 0 });
   await kv.put('rooms:index', JSON.stringify(index), { expirationTtl: 86400 });
 }
-async function updateRoomInIndex(kv, roomId, data) {
+async function updateRoomInIndex(kv: KVNamespace, roomId: string, data: Partial<RoomIndexEntry>): Promise<void> {
   const index = await getRoomIndex(kv);
   const idx = index.findIndex(r => r.id === roomId);
   if (idx !== -1) { Object.assign(index[idx], data); await kv.put('rooms:index', JSON.stringify(index), { expirationTtl: 86400 }); }
 }
 
 // ============ R2 Cleanup ============
-async function cleanupRoomFiles(bucket, roomId) {
-  if (!bucket) return;
+async function cleanupRoomFiles(bucket: R2Bucket, roomId: string): Promise<void> {
   const prefix = `room/${roomId}/`;
-  let truncated = true;
-  let cursor = undefined;
-  while (truncated) {
+  let cursor: string | undefined = undefined;
+  do {
     const listed = await bucket.list({ prefix, cursor, limit: 1000 });
     if (listed.objects.length) {
       await Promise.all(listed.objects.map(obj => bucket.delete(obj.key)));
     }
-    truncated = listed.truncated;
+    if (!listed.truncated) break;
     cursor = listed.cursor;
-  }
+  } while (cursor);
 }
 
 // ============ Routes ============
-async function handleRequest(request, env) {
+async function handleRequest(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
   const path = url.pathname;
   const method = request.method;
@@ -209,7 +257,7 @@ async function handleRequest(request, env) {
     if (!room) return json({ error: 'Room not found or expired' }, 404);
     const pin = url.searchParams.get('pin');
     if (pin !== room.pin) return json({ error: 'Wrong PIN' }, 403);
-    const since = parseInt(url.searchParams.get('since')) || 0;
+    const since = parseInt(url.searchParams.get('since') || '0') || 0;
     const filtered = (room.messages || []).filter(m => m.createdAt > since);
     return json(filtered.map(m => ({
       id: m.id, sender: m.sender, type: m.type, text: m.text,
@@ -229,11 +277,11 @@ async function handleRequest(request, env) {
     if (!msg || !msg.r2Key) return json({ error: 'Not found' }, 404);
     const obj = await env.FILES.get(msg.r2Key);
     if (!obj) return json({ error: 'File not found' }, 404);
-    const headers = { 'Content-Type': msg.fileMime || 'application/octet-stream' };
+    const headers: Record<string, string> = { 'Content-Type': msg.fileMime || 'application/octet-stream' };
     if (msg.type === 'image') {
       headers['Content-Disposition'] = `inline; filename="${msg.fileName}"`;
     } else {
-      headers['Content-Disposition'] = `attachment; filename*=UTF-8''${encodeURIComponent(msg.fileName)}`;
+      headers['Content-Disposition'] = `attachment; filename*=UTF-8''${encodeURIComponent(msg.fileName || '')}`;
     }
     return new Response(obj.body, { headers });
   }
@@ -249,9 +297,9 @@ async function handleRequest(request, env) {
 }
 
 // ============ Create Room ============
-async function handleCreateRoom(request, ip, kv, turnstileSecret, turnstileSiteKey) {
-  let body;
-  try { body = await request.json(); } catch { body = {}; }
+async function handleCreateRoom(request: Request, ip: string, kv: KVNamespace, turnstileSecret: string, turnstileSiteKey: string): Promise<Response> {
+  let body: { ttl?: number; turnstile?: string };
+  try { body = await request.json() as { ttl?: number; turnstile?: string }; } catch { body = {}; }
 
   const now = Date.now();
 
@@ -295,8 +343,8 @@ async function handleCreateRoom(request, ip, kv, turnstileSecret, turnstileSiteK
 
   const id = genRoomId();
   const pin = genPin();
-  const ttl = TTL_OPTIONS.includes(body.ttl) ? body.ttl : 1;
-  const room = {
+  const ttl = TTL_OPTIONS.includes(body.ttl || 0) ? body.ttl! : 1;
+  const room: Room = {
     id, pin, ttlHours: ttl,
     createdAt: now, lastActivityAt: now,
     ipNames: {}, messages: [],
@@ -307,12 +355,12 @@ async function handleCreateRoom(request, ip, kv, turnstileSecret, turnstileSiteK
 }
 
 // ============ Join Room ============
-async function handleJoinRoom(request, roomId, ip, kv, turnstileSecret, turnstileSiteKey) {
+async function handleJoinRoom(request: Request, roomId: string, ip: string, kv: KVNamespace, turnstileSecret: string, turnstileSiteKey: string): Promise<Response> {
   const room = await getRoom(kv, roomId);
   if (!room) return json({ error: 'Room not found or expired' }, 404);
 
-  let body;
-  try { body = await request.json(); } catch { body = {}; }
+  let body: { pin?: string; turnstile?: string };
+  try { body = await request.json() as { pin?: string; turnstile?: string }; } catch { body = {}; }
 
   const now = Date.now();
 
@@ -374,7 +422,7 @@ async function handleJoinRoom(request, roomId, ip, kv, turnstileSecret, turnstil
 }
 
 // ============ Send Message ============
-async function handleSendMessage(request, roomId, ip, kv, bucket) {
+async function handleSendMessage(request: Request, roomId: string, ip: string, kv: KVNamespace, bucket: R2Bucket): Promise<Response> {
   const room = await getRoom(kv, roomId);
   if (!room) return json({ error: 'Room not found or expired' }, 404);
 
@@ -382,15 +430,16 @@ async function handleSendMessage(request, roomId, ip, kv, bucket) {
   const pin = formData.get('pin');
   if (pin !== room.pin) return json({ error: 'Wrong PIN' }, 403);
 
-  const sender = (formData.get('sender') || '').trim().slice(0, 30) || assignName(room, ip);
+  const sender = ((formData.get('sender') as string) || '').trim().slice(0, 30) || assignName(room, ip);
   assignName(room, ip);
-  const text = formData.get('text')?.trim() || null;
-  const file = formData.get('file');
+  const text = (formData.get('text') as string)?.trim() || null;
+  const file = formData.get('file') as File | null;
 
   if (!text && !file) return json({ error: 'Empty message' }, 400);
 
-  let type = 'text';
-  let fileName = null, r2Key = null, fileMime = null, fileSize = null;
+  let type: 'text' | 'image' | 'file' = 'text';
+  let fileName: string | null = null, r2Key: string | null = null, fileMime: string | null = null, fileSize: number | null = null;
+  let fileMsgId: string | undefined;
 
   if (file && file.name) {
     type = file.type?.startsWith('image/') ? 'image' : 'file';
@@ -403,11 +452,10 @@ async function handleSendMessage(request, roomId, ip, kv, bucket) {
     await bucket.put(r2Key, buffer, {
       httpMetadata: { contentType: fileMime },
     });
-    // Store msgId in the message so it matches the R2 key
-    var fileMsgId = msgId;
+    fileMsgId = msgId;
   }
 
-  const msg = {
+  const msg: Message = {
     id: fileMsgId || crypto.randomUUID(),
     sender, type, text,
     fileName, r2Key, fileMime, fileSize,
@@ -422,12 +470,12 @@ async function handleSendMessage(request, roomId, ip, kv, bucket) {
 }
 
 // ============ Delete Message ============
-async function handleDeleteMessage(request, roomId, msgId, ip, kv, bucket) {
+async function handleDeleteMessage(request: Request, roomId: string, msgId: string, ip: string, kv: KVNamespace, bucket: R2Bucket): Promise<Response> {
   const room = await getRoom(kv, roomId);
   if (!room) return json({ error: 'Room not found or expired' }, 404);
 
-  let body;
-  try { body = await request.json(); } catch { body = {}; }
+  let body: { pin?: string };
+  try { body = await request.json() as { pin?: string }; } catch { body = {}; }
   if (body.pin !== room.pin) return json({ error: 'Wrong PIN' }, 403);
 
   const idx = (room.messages || []).findIndex(m => m.id === msgId);
@@ -443,12 +491,12 @@ async function handleDeleteMessage(request, roomId, msgId, ip, kv, bucket) {
 }
 
 // ============ HTML Template ============
-function getHTML() {
-  const translations = {
+function getHTML(): string {
+  const translations: Record<string, Record<string, string>> = {
     zh:{title:'临时聊天室',subtitle:'创建房间，分享链接和密码<br>无需注册，阅后即焚',ttlLabel:'消息有效期（无活动自动销毁）',ttl1:'1 小时',ttl6:'6 小时',ttl12:'12 小时',ttl24:'24 小时',btnCreate:'+ 创建新房间',divider:'或加入已有房间',labelRoomId:'房间号',labelPin:'4位密码',phRoomId:'例如: abc123',phPin:'例如: 4829',btnJoin:'加入房间',backCreate:'← 创建自己的房间',chatTitle:'聊天室',ttlInfo:'h 后过期',btnShare:'分享',btnLeave:'离开',emptyHint:'👋 发送一条消息开始聊天',emptySub:'支持文字、图片、文件 | 文件选择后自动上传 | Ctrl+V 粘贴图片',phInput:'输入消息... (Enter发送)',btnSend:'发送',shareTitle:'分享房间',shareDesc:'扫描二维码或发送链接',shareHint:'链接和密码需要一起发给对方',btnClose:'关闭',btnCopy:'复制',toastCopied:'已复制链接和密码',toastUploadFail:'上传失败',toastNetError:'网络错误',toastSendFail:'发送失败',toastCreateFail:'创建失败',toastExpired:'房间已过期',toastPinError:'Wrong PIN',joinTitle:'加入聊天室',joinSub:'输入密码以加入房间',joinNoPwd:'无密码无法进入',errRoomNotFound:'Room not found or expired',errBlacklisted:'尝试次数过多，已被暂时拉黑，',errMinutesLater:' 分钟后重试',errWait:'请等待 ',errSecRetry:' 秒后再试',errNeedVerify:'密码错误次数过多，需要完成验证',errVerifyFail:'验证失败，请重试',btnVerifyJoin:'验证后加入',errWrongPin:'密码错误，还需验证（剩余',errChances:' 次机会）',errWrongPinNormal:'密码错误，剩余',errAttempts:' 次尝试机会',btnRetry:'秒后重试',btnMinRetry:'分',btnSecRetry:'秒后',btnVerifyCreate:'验证后创建',errCreateFrequent:'创建过于频繁，',errCreateBlacklist:'创建过于频繁，已被限制 60 分钟',errCreateCooldown:'创建过于频繁，请等待',errBlacklist30:'尝试次数过多，已被拉黑 30 分钟',errFileNotExist:'文件不存在',qrFail:'二维码加载失败',qrFailSub:'请使用下方链接',phNeedRoomId:'请输入房间号和4位密码',orJoin:'或加入已有房间',activeRooms:'个活跃房间',roomMembers:'成员',roomMsgs:'消息',roomExpires:'到期',btnRoomJoin:'加入',noRooms:'暂无活跃房间'},
-    en:{title:'Temporary Chat',subtitle:'Create a room, share link & PIN<br>No registration, auto-destroy',ttlLabel:'Message lifetime (auto-destroy after inactivity)',ttl1:'1 hour',ttl6:'6 hours',ttl12:'12 hours',ttl24:'24 hours',btnCreate:'+ Create Room',divider:'or join existing room',labelRoomId:'Room ID',labelPin:'4-digit PIN',phRoomId:'e.g. abc123',phPin:'e.g. 4829',btnJoin:'Join Room',backCreate:'← Create your own room',chatTitle:'Chat Room',ttlInfo:'h until expiry',btnShare:'Share',btnLeave:'Leave',emptyHint:'👋 Send a message to start chatting',emptySub:'Text, images, files | Files auto-upload on selection | Ctrl+V to paste image',phInput:'Type a message... (Enter to send)',btnSend:'Send',shareTitle:'Share Room',shareDesc:'Scan QR code or send link',shareHint:'Send both the link and PIN to your contact',btnClose:'Close',btnCopy:'Copy',toastCopied:'Link and PIN copied',toastUploadFail:'Upload failed',toastNetError:'Network error',toastSendFail:'Send failed',toastCreateFail:'Creation failed',toastExpired:'Room has expired',toastPinError:'Wrong PIN',joinTitle:'Join Chat Room',joinSub:'Enter PIN to join the room',joinNoPwd:'PIN is required',errRoomNotFound:'Room not found or expired',errBlacklisted:'Too many attempts, temporarily blocked. Retry in ',errMinutesLater:' minutes',errWait:'Please wait ',errSecRetry:' seconds',errNeedVerify:'Too many wrong PINs, verification required',errVerifyFail:'Verification failed, please retry',btnVerifyJoin:'Verify & Join',errWrongPin:'Wrong PIN, verification needed (',errChances:' attempts left)',errWrongPinNormal:'Wrong PIN, ',errAttempts:' attempts left',btnRetry:'s retry',btnMinRetry:'m ',btnSecRetry:'s',btnVerifyCreate:'Verify & Create',errCreateFrequent:'Too many creations, ',errCreateBlacklist:'Too many creations, blocked for 60 minutes',errCreateCooldown:'Too many creations, please wait ',errBlacklist30:'Too many attempts, blocked for 30 minutes',errFileNotExist:'File not found',qrFail:'QR code failed to load',qrFailSub:'Please use the link below',phNeedRoomId:'Please enter room ID and 4-digit PIN',orJoin:'or join an existing room',activeRooms:'active room(s)',roomMembers:'members',roomMsgs:'messages',roomExpires:'expires',btnRoomJoin:'Join',noRooms:'No active rooms'},
-    de:{title:'Temporärer Chat',subtitle:'Raum erstellen, Link & PIN teilen<br>Keine Registrierung, auto-zerstörend',ttlLabel:'Nachrichtengültigkeit (auto-zerstörung nach Inaktivität)',ttl1:'1 Stunde',ttl6:'6 Stunden',ttl12:'12 Stunden',ttl24:'24 Stunden',btnCreate:'+ Raum erstellen',divider:'oder bestehendem Raum beitreten',labelRoomId:'Raum-ID',labelPin:'4-stelliger PIN',phRoomId:'z.B. abc123',phPin:'z.B. 4829',btnJoin:'Beitreten',backCreate:'← Eigenen Raum erstellen',chatTitle:'Chatraum',ttlInfo:'h bis Ablauf',btnShare:'Teilen',btnLeave:'Verlassen',emptyHint:'👋 Nachricht senden um zu starten',emptySub:'Text, Bilder, Dateien | Dateien werden automatisch hochgeladen | Strg+V zum Einfügen',phInput:'Nachricht eingeben... (Enter zum Senden)',btnSend:'Senden',shareTitle:'Raum teilen',shareDesc:'QR-Code scannen oder Link senden',shareHint:'Link und PIN an Ihren Kontakt senden',btnClose:'Schließen',btnCopy:'Kopieren',toastCopied:'Link und PIN kopiert',toastUploadFail:'Upload fehlgeschlagen',toastNetError:'Netzwerkfehler',toastSendFail:'Senden fehlgeschlagen',toastCreateFail:'Erstellung fehlgeschlagen',toastExpired:'Raum ist abgelaufen',toastPinError:'Falscher PIN',joinTitle:'Chatraum beitreten',joinSub:'PIN eingeben um beizutreten',joinNoPwd:'PIN ist erforderlich',errRoomNotFound:'Raum nicht gefunden oder abgelaufen',errBlacklisted:'Zu viele Versuche, vorübergehend gesperrt. Erneut versuchen in ',errMinutesLater:' Minuten',errWait:'Bitte warten ',errSecRetry:' Sekunden',errNeedVerify:'Zu viele falsche PINs, Verifizierung erforderlich',errVerifyFail:'Verifizierung fehlgeschlagen',btnVerifyJoin:'Verifizieren & Beitreten',errWrongPin:'Falscher PIN, Verifizierung nötig (',errChances:' Versuche übrig)',errWrongPinNormal:'Falscher PIN, ',errAttempts:' Versuche übrig',btnRetry:'s warten',btnMinRetry:'m ',btnSecRetry:'s',btnVerifyCreate:'Verifizieren & Erstellen',errCreateFrequent:'Zu viele Erstellungen, ',errCreateBlacklist:'Zu viele Erstellungen, 60 Min. gesperrt',errCreateCooldown:'Zu viele Erstellungen, bitte warten ',errBlacklist30:'Zu viele Versuche, 30 Min. gesperrt',errFileNotExist:'Datei nicht gefunden',qrFail:'QR-Code konnte nicht geladen werden',qrFailSub:'Bitte nutzen Sie den Link unten',phNeedRoomId:'Bitte Raum-ID und 4-stelligen PIN eingeben',orJoin:'oder bestehendem Raum beitreten',activeRooms:'aktive(s) Raum/Räume',roomMembers:'Mitglieder',roomMsgs:'Nachrichten',roomExpires:'läuft ab',btnRoomJoin:'Beitreten',noRooms:'Keine aktiven Räume'},
-    fr:{title:'Chat Temporaire',subtitle:'Créer un salon, partager le lien et le PIN<br>Sans inscription, auto-destruction',ttlLabel:'Durée des messages (destruction après inactivité)',ttl1:'1 heure',ttl6:'6 heures',ttl12:'12 heures',ttl24:'24 heures',btnCreate:'+ Créer un salon',divider:'ou rejoindre un salon existant',labelRoomId:'ID du salon',labelPin:'PIN à 4 chiffres',phRoomId:'ex: abc123',phPin:'ex: 4829',btnJoin:'Rejoindre',backCreate:'← Créer votre propre salon',chatTitle:'Salon de chat',ttlInfo:'h avant expiration',btnShare:'Partager',btnLeave:'Quitter',emptyHint:'👋 Envoyez un message pour commencer',emptySub:'Texte, images, fichiers | Upload auto des fichiers | Ctrl+V pour coller une image',phInput:'Écrire un message... (Entrée pour envoyer)',btnSend:'Envoyer',shareTitle:'Partager le salon',shareDesc:'Scanner le QR ou envoyer le lien',shareHint:'Envoyez le lien et le PIN à votre contact',btnClose:'Fermer',btnCopy:'Copier',toastCopied:'Lien et PIN copiés',toastUploadFail:"Échec de l'upload",toastNetError:'Erreur réseau',toastSendFail:"Échec de l'envoi",toastCreateFail:'Échec de la création',toastExpired:'Le salon a expiré',toastPinError:'PIN incorrect',joinTitle:'Rejoindre le salon',joinSub:'Entrez le PIN pour rejoindre',joinNoPwd:'Le PIN est requis',errRoomNotFound:'Salon introuvable ou expiré',errBlacklisted:'Trop de tentatives, bloqué temporairement. Réessayer dans ',errMinutesLater:' minutes',errWait:'Veuillez patienter ',errSecRetry:' secondes',errNeedVerify:'Trop de PIN incorrects, vérification requise',errVerifyFail:'Échec de la vérification',btnVerifyJoin:'Vérifier & Rejoindre',errWrongPin:'PIN incorrect, vérification nécessaire (',errChances:' essais restants)',errWrongPinNormal:'PIN incorrect, ',errAttempts:' essais restants',btnRetry:'s',btnMinRetry:'m ',btnSecRetry:'s',btnVerifyCreate:'Vérifier & Créer',errCreateFrequent:'Trop de créations, ',errCreateBlacklist:'Trop de créations, bloqué 60 minutes',errCreateCooldown:'Trop de créations, veuillez patienter ',errBlacklist30:'Trop de tentatives, bloqué 30 minutes',errFileNotExist:'Fichier introuvable',qrFail:'Échec du chargement du QR',qrFailSub:'Utilisez le lien ci-dessous',phNeedRoomId:'Entrez ID du salon et PIN à 4 chiffres',orJoin:'ou rejoindre un salon existant',activeRooms:'salon(s) actif(s)',roomMembers:'membres',roomMsgs:'messages',roomExpires:'expire',btnRoomJoin:'Rejoindre',noRooms:'Aucun salon actif'},
+    en:{title:'Temporary Chat',subtitle:'Create a room, share link &amp; PIN<br>No registration, auto-destroy',ttlLabel:'Message lifetime (auto-destroy after inactivity)',ttl1:'1 hour',ttl6:'6 hours',ttl12:'12 hours',ttl24:'24 hours',btnCreate:'+ Create Room',divider:'or join existing room',labelRoomId:'Room ID',labelPin:'4-digit PIN',phRoomId:'e.g. abc123',phPin:'e.g. 4829',btnJoin:'Join Room',backCreate:'← Create your own room',chatTitle:'Chat Room',ttlInfo:'h until expiry',btnShare:'Share',btnLeave:'Leave',emptyHint:'👋 Send a message to start chatting',emptySub:'Text, images, files | Files auto-upload on selection | Ctrl+V to paste image',phInput:'Type a message... (Enter to send)',btnSend:'Send',shareTitle:'Share Room',shareDesc:'Scan QR code or send link',shareHint:'Send both the link and PIN to your contact',btnClose:'Close',btnCopy:'Copy',toastCopied:'Link and PIN copied',toastUploadFail:'Upload failed',toastNetError:'Network error',toastSendFail:'Send failed',toastCreateFail:'Creation failed',toastExpired:'Room has expired',toastPinError:'Wrong PIN',joinTitle:'Join Chat Room',joinSub:'Enter PIN to join the room',joinNoPwd:'PIN is required',errRoomNotFound:'Room not found or expired',errBlacklisted:'Too many attempts, temporarily blocked. Retry in ',errMinutesLater:' minutes',errWait:'Please wait ',errSecRetry:' seconds',errNeedVerify:'Too many wrong PINs, verification required',errVerifyFail:'Verification failed, please retry',btnVerifyJoin:'Verify &amp; Join',errWrongPin:'Wrong PIN, verification needed (',errChances:' attempts left)',errWrongPinNormal:'Wrong PIN, ',errAttempts:' attempts left',btnRetry:'s retry',btnMinRetry:'m ',btnSecRetry:'s',btnVerifyCreate:'Verify &amp; Create',errCreateFrequent:'Too many creations, ',errCreateBlacklist:'Too many creations, blocked for 60 minutes',errCreateCooldown:'Too many creations, please wait ',errBlacklist30:'Too many attempts, blocked for 30 minutes',errFileNotExist:'File not found',qrFail:'QR code failed to load',qrFailSub:'Please use the link below',phNeedRoomId:'Please enter room ID and 4-digit PIN',orJoin:'or join an existing room',activeRooms:'active room(s)',roomMembers:'members',roomMsgs:'messages',roomExpires:'expires',btnRoomJoin:'Join',noRooms:'No active rooms'},
+    de:{title:'Temporärer Chat',subtitle:'Raum erstellen, Link &amp; PIN teilen<br>Keine Registrierung, auto-zerstörend',ttlLabel:'Nachrichtengültigkeit (auto-zerstörung nach Inaktivität)',ttl1:'1 Stunde',ttl6:'6 Stunden',ttl12:'12 Stunden',ttl24:'24 Stunden',btnCreate:'+ Raum erstellen',divider:'oder bestehendem Raum beitreten',labelRoomId:'Raum-ID',labelPin:'4-stelliger PIN',phRoomId:'z.B. abc123',phPin:'z.B. 4829',btnJoin:'Beitreten',backCreate:'← Eigenen Raum erstellen',chatTitle:'Chatraum',ttlInfo:'h bis Ablauf',btnShare:'Teilen',btnLeave:'Verlassen',emptyHint:'👋 Nachricht senden um zu starten',emptySub:'Text, Bilder, Dateien | Dateien werden automatisch hochgeladen | Strg+V zum Einfügen',phInput:'Nachricht eingeben... (Enter zum Senden)',btnSend:'Senden',shareTitle:'Raum teilen',shareDesc:'QR-Code scannen oder Link senden',shareHint:'Link und PIN an Ihren Kontakt senden',btnClose:'Schließen',btnCopy:'Kopieren',toastCopied:'Link und PIN kopiert',toastUploadFail:'Upload fehlgeschlagen',toastNetError:'Netzwerkfehler',toastSendFail:'Senden fehlgeschlagen',toastCreateFail:'Erstellung fehlgeschlagen',toastExpired:'Raum ist abgelaufen',toastPinError:'Falscher PIN',joinTitle:'Chatraum beitreten',joinSub:'PIN eingeben um beizutreten',joinNoPwd:'PIN ist erforderlich',errRoomNotFound:'Raum nicht gefunden oder abgelaufen',errBlacklisted:'Zu viele Versuche, vorübergehend gesperrt. Erneut versuchen in ',errMinutesLater:' Minuten',errWait:'Bitte warten ',errSecRetry:' Sekunden',errNeedVerify:'Zu viele falsche PINs, Verifizierung erforderlich',errVerifyFail:'Verifizierung fehlgeschlagen',btnVerifyJoin:'Verifizieren &amp; Beitreten',errWrongPin:'Falscher PIN, Verifizierung nötig (',errChances:' Versuche übrig)',errWrongPinNormal:'Falscher PIN, ',errAttempts:' Versuche übrig',btnRetry:'s warten',btnMinRetry:'m ',btnSecRetry:'s',btnVerifyCreate:'Verifizieren &amp; Erstellen',errCreateFrequent:'Zu viele Erstellungen, ',errCreateBlacklist:'Zu viele Erstellungen, 60 Min. gesperrt',errCreateCooldown:'Zu viele Erstellungen, bitte warten ',errBlacklist30:'Zu viele Versuche, 30 Min. gesperrt',errFileNotExist:'Datei nicht gefunden',qrFail:'QR-Code konnte nicht geladen werden',qrFailSub:'Bitte nutzen Sie den Link unten',phNeedRoomId:'Bitte Raum-ID und 4-stelligen PIN eingeben',orJoin:'oder bestehendem Raum beitreten',activeRooms:'aktive(s) Raum/Räume',roomMembers:'Mitglieder',roomMsgs:'Nachrichten',roomExpires:'läuft ab',btnRoomJoin:'Beitreten',noRooms:'Keine aktiven Räume'},
+    fr:{title:'Chat Temporaire',subtitle:'Créer un salon, partager le lien et le PIN<br>Sans inscription, auto-destruction',ttlLabel:'Durée des messages (destruction après inactivité)',ttl1:'1 heure',ttl6:'6 heures',ttl12:'12 heures',ttl24:'24 heures',btnCreate:'+ Créer un salon',divider:'ou rejoindre un salon existant',labelRoomId:'ID du salon',labelPin:'PIN à 4 chiffres',phRoomId:'ex: abc123',phPin:'ex: 4829',btnJoin:'Rejoindre',backCreate:'← Créer votre propre salon',chatTitle:'Salon de chat',ttlInfo:'h avant expiration',btnShare:'Partager',btnLeave:'Quitter',emptyHint:'👋 Envoyez un message pour commencer',emptySub:'Texte, images, fichiers | Upload auto des fichiers | Ctrl+V pour coller une image',phInput:'Écrire un message... (Entrée pour envoyer)',btnSend:'Envoyer',shareTitle:'Partager le salon',shareDesc:'Scanner le QR ou envoyer le lien',shareHint:'Envoyez le lien et le PIN à votre contact',btnClose:'Fermer',btnCopy:'Copier',toastCopied:'Lien et PIN copiés',toastUploadFail:"Échec de l'upload",toastNetError:'Erreur réseau',toastSendFail:"Échec de l'envoi",toastCreateFail:'Échec de la création',toastExpired:'Le salon a expiré',toastPinError:'PIN incorrect',joinTitle:'Rejoindre le salon',joinSub:'Entrez le PIN pour rejoindre',joinNoPwd:'Le PIN est requis',errRoomNotFound:'Salon introuvable ou expiré',errBlacklisted:'Trop de tentatives, bloqué temporairement. Réessayer dans ',errMinutesLater:' minutes',errWait:'Veuillez patienter ',errSecRetry:' secondes',errNeedVerify:'Trop de PIN incorrects, vérification requise',errVerifyFail:'Échec de la vérification',btnVerifyJoin:'Vérifier &amp; Rejoindre',errWrongPin:'PIN incorrect, vérification nécessaire (',errChances:' essais restants)',errWrongPinNormal:'PIN incorrect, ',errAttempts:' essais restants',btnRetry:'s',btnMinRetry:'m ',btnSecRetry:'s',btnVerifyCreate:'Vérifier &amp; Créer',errCreateFrequent:'Trop de créations, ',errCreateBlacklist:'Trop de créations, bloqué 60 minutes',errCreateCooldown:'Trop de créations, veuillez patienter ',errBlacklist30:'Trop de tentatives, bloqué 30 minutes',errFileNotExist:'Fichier introuvable',qrFail:'Échec du chargement du QR',qrFailSub:'Utilisez le lien ci-dessous',phNeedRoomId:'Entrez ID du salon et PIN à 4 chiffres',orJoin:'ou rejoindre un salon existant',activeRooms:'salon(s) actif(s)',roomMembers:'membres',roomMsgs:'messages',roomExpires:'expire',btnRoomJoin:'Rejoindre',noRooms:'Aucun salon actif'},
     ja:{title:'チャット',subtitle:'ルームを作成、リンクとPINを共有<br>登録不要、自動消去',ttlLabel:'メッセージ有効期限（非活動で自動消去）',ttl1:'1時間',ttl6:'6時間',ttl12:'12時間',ttl24:'24時間',btnCreate:'+ ルーム作成',divider:'または既存のルームに参加',labelRoomId:'ルームID',labelPin:'4桁PIN',phRoomId:'例: abc123',phPin:'例: 4829',btnJoin:'参加',backCreate:'← 自分のルームを作成',chatTitle:'チャットルーム',ttlInfo:'時間で期限切れ',btnShare:'共有',btnLeave:'退出',emptyHint:'👋 メッセージを送信してチャット開始',emptySub:'テキスト、画像、ファイル | ファイルは選択時に自動アップロード | Ctrl+Vで画像貼り付け',phInput:'メッセージ入力... (Enterで送信)',btnSend:'送信',shareTitle:'ルーム共有',shareDesc:'QRコードをスキャンまたはリンクを送信',shareHint:'リンクとPINを相手に送ってください',btnClose:'閉じる',btnCopy:'コピー',toastCopied:'リンクとPINをコピーしました',toastUploadFail:'アップロード失敗',toastNetError:'ネットワークエラー',toastSendFail:'送信失敗',toastCreateFail:'作成失敗',toastExpired:'ルームの期限が切れました',toastPinError:'PINが間違っています',joinTitle:'チャットルームに参加',joinSub:'PINを入力して参加',joinNoPwd:'PINが必要です',errRoomNotFound:'ルームが見つからないか期限切れです',errBlacklisted:'試行回数多すぎ、一時ブロック。再試行まで ',errMinutesLater:'分',errWait:'お待ちください ',errSecRetry:'秒',errNeedVerify:'PIN間違い多すぎ、認証が必要です',errVerifyFail:'認証失敗、再試行してください',btnVerifyJoin:'認証して参加',errWrongPin:'PIN間違い、認証必要（残り',errChances:'回）',errWrongPinNormal:'PIN間違い、残り',errAttempts:'回',btnRetry:'秒後',btnMinRetry:'分',btnSecRetry:'秒',btnVerifyCreate:'認証して作成',errCreateFrequent:'作成多すぎ、',errCreateBlacklist:'作成多すぎ、60分ブロック',errCreateCooldown:'作成多すぎ、お待ちください ',errBlacklist30:'試行多すぎ、30分ブロック',errFileNotExist:'ファイルが見つかりません',qrFail:'QRコードの読み込み失敗',qrFailSub:'下のリンクをご利用ください',phNeedRoomId:'ルームIDと4桁PINを入力してください',orJoin:'または既存のルームに参加',activeRooms:'個のアクティブルーム',roomMembers:'メンバー',roomMsgs:'メッセージ',roomExpires:'期限',btnRoomJoin:'参加',noRooms:'アクティブルームなし'},
     es:{title:'Chat Temporal',subtitle:'Crea una sala, comparte enlace y PIN<br>Sin registro, auto-destrucción',ttlLabel:'Duración de mensajes (auto-destrucción por inactividad)',ttl1:'1 hora',ttl6:'6 horas',ttl12:'12 horas',ttl24:'24 horas',btnCreate:'+ Crear Sala',divider:'o unirse a una sala existente',labelRoomId:'ID de Sala',labelPin:'PIN de 4 dígitos',phRoomId:'ej: abc123',phPin:'ej: 4829',btnJoin:'Unirse',backCreate:'← Crear tu propia sala',chatTitle:'Sala de Chat',ttlInfo:'h para expirar',btnShare:'Compartir',btnLeave:'Salir',emptyHint:'👋 Envía un mensaje para empezar',emptySub:'Texto, imágenes, archivos | Archivos se suben automáticamente | Ctrl+V para pegar imagen',phInput:'Escribe un mensaje... (Enter para enviar)',btnSend:'Enviar',shareTitle:'Compartir Sala',shareDesc:'Escanea QR o envía el enlace',shareHint:'Envía el enlace y PIN a tu contacto',btnClose:'Cerrar',btnCopy:'Copiar',toastCopied:'Enlace y PIN copiados',toastUploadFail:'Error de subida',toastNetError:'Error de red',toastSendFail:'Error al enviar',toastCreateFail:'Error al crear',toastExpired:'La sala ha expirado',toastPinError:'PIN incorrecto',joinTitle:'Unirse al Chat',joinSub:'Ingresa el PIN para unirte',joinNoPwd:'El PIN es obligatorio',errRoomNotFound:'Sala no encontrada o expirada',errBlacklisted:'Demasiados intentos, bloqueado temporalmente. Reintentar en ',errMinutesLater:' minutos',errWait:'Por favor espera ',errSecRetry:' segundos',errNeedVerify:'Demasiados PIN incorrectos, verificación requerida',errVerifyFail:'Verificación fallida',btnVerifyJoin:'Verificar y Unirse',errWrongPin:'PIN incorrecto, verificación necesaria (',errChances:' intentos restantes)',errWrongPinNormal:'PIN incorrecto, ',errAttempts:' intentos restantes',btnRetry:'s',btnMinRetry:'m ',btnSecRetry:'s',btnVerifyCreate:'Verificar y Crear',errCreateFrequent:'Demasiadas creaciones, ',errCreateBlacklist:'Demasiadas creaciones, bloqueado 60 minutos',errCreateCooldown:'Demasiadas creaciones, espera ',errBlacklist30:'Demasiados intentos, bloqueado 30 minutos',errFileNotExist:'Archivo no encontrado',qrFail:'Error al cargar QR',qrFailSub:'Usa el enlace de abajo',phNeedRoomId:'Ingresa ID de sala y PIN de 4 dígitos',orJoin:'o unirse a una sala existente',activeRooms:'sala(s) activa(s)',roomMembers:'miembros',roomMsgs:'mensajes',roomExpires:'expira',btnRoomJoin:'Unirse',noRooms:'No hay salas activas'}
   };
@@ -578,7 +626,7 @@ body.is-joining #room-list-section{display:none!important}
 <div id="turnstile-container" style="display:none;margin:8px 0;"></div>
 <div id="join-error" style="display:none;font-size:13px;color:#e88;text-align:center;"></div>
 <button class="btn btn-primary" id="btn-join" data-i18n="btnJoin">Join Room</button>
-<a href="/" class="back-link" id="back-create" data-i18n="backCreate">← Create your own room</a>
+<a href="/" class="back-link" id="back-create" data-i18n="backCreate">&larr; Create your own room</a>
 </div>
 <div class="room-list-section" id="room-list-section" style="width:100%;max-width:360px;">
 <div class="divider" data-i18n="orJoin">or join an existing room</div>
@@ -595,10 +643,10 @@ body.is-joining #room-list-section{display:none!important}
 <button class="btn-danger" id="btn-leave" data-i18n="btnLeave" style="font-size:12px;padding:5px 10px;">Leave</button>
 </div>
 <div class="messages" id="messages">
-<div class="empty-hint" id="empty-hint"><span data-i18n="emptyHint">👋 Send a message to start chatting</span><br><span style="font-size:11px" data-i18n="emptySub">Text, images, files | Files auto-upload on selection | Ctrl+V to paste image</span></div>
+<div class="empty-hint" id="empty-hint"><span data-i18n="emptyHint">&#x1f44b; Send a message to start chatting</span><br><span style="font-size:11px" data-i18n="emptySub">Text, images, files | Files auto-upload on selection | Ctrl+V to paste image</span></div>
 </div>
 <div class="input-area">
-<button class="btn-icon" id="btn-attach" title="📎">📎</button>
+<button class="btn-icon" id="btn-attach" title="&#x1f4ce;">&#x1f4ce;</button>
 <textarea id="text-input" rows="1" data-i18n-ph="phInput" placeholder="Type a message... (Enter to send)"></textarea>
 <button class="btn-send" id="btn-send" data-i18n="btnSend" disabled>Send</button>
 </div>
@@ -621,8 +669,8 @@ body.is-joining #room-list-section{display:none!important}
 </div>
 </div>
 <input type="file" id="file-input" multiple>
-<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
-<script id="i18n-data" type="application/json">${JSON.stringify(translations)}</script>
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"><\/script>
+<script id="i18n-data" type="application/json">${JSON.stringify(translations)}<\/script>
 <script>
 const T=JSON.parse(document.getElementById('i18n-data').textContent);
 const lang=(navigator.language||navigator.browserLanguage||'en').toLowerCase();
@@ -661,7 +709,7 @@ async function sendMessage(){const text=textInput.value.trim();if(!text)return;b
 btnSend.addEventListener('click',sendMessage);
 textInput.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMessage()}});
 async function fetchMessages(){try{const res=await fetch('/api/room/'+roomId+'/messages?since='+lastTs+'&pin='+roomPin);if(res.status===403){toast(t('toastPinError'));return}if(res.status===404){toast(t('toastExpired'));return}const list=await res.json();if(list.length){const hint=messagesEl.querySelector('.empty-hint');if(hint)hint.remove();const wasAtBottom=messagesEl.scrollHeight-messagesEl.scrollTop-messagesEl.clientHeight<80;for(const msg of list){if(renderedIds.has(msg.id))continue;renderedIds.add(msg.id);if(msg.createdAt>lastTs)lastTs=msg.createdAt;renderMessage(msg)}if(wasAtBottom)messagesEl.scrollTop=messagesEl.scrollHeight}}catch{}}
-function renderMessage(msg){const isMine=msg.sender===myName,row=document.createElement('div');row.className='msg-row '+(isMine?'mine':'other');row.id='m-'+msg.id;const ts=new Date(msg.createdAt).toLocaleTimeString(navigator.language||'en',{hour:'2-digit',minute:'2-digit'});let bp=[];if(msg.text)bp.push(escapeHtml(msg.text));if(msg.hasFile){const u='/api/room/'+roomId+'/file/'+msg.id+'?pin='+roomPin;if(msg.type==='image'){bp.push('<img src="'+u+'" alt="'+(msg.fileName||'image')+'" onclick="window.open(\\''+u+'\\')" loading="lazy">')}else{const sz=msg.fileSize?formatSize(msg.fileSize):'';bp.push('<div class="file-attach"><span class="file-icon">📄</span><div class="file-info"><span class="file-name">'+escapeHtml(msg.fileName||'file')+'</span>'+(sz?'<span class="file-size">'+sz+'</span>':'')+'</div><a href="'+u+'" download>Download</a></div>')}}row.innerHTML='<div class="msg-sender">'+escapeHtml(msg.sender)+'</div><div class="msg-bubble">'+bp.join('<div style="margin:4px 0"></div>')+'</div><div class="msg-time">'+ts+'</div>';messagesEl.appendChild(row)}
+function renderMessage(msg){const isMine=msg.sender===myName,row=document.createElement('div');row.className='msg-row '+(isMine?'mine':'other');row.id='m-'+msg.id;const ts=new Date(msg.createdAt).toLocaleTimeString(navigator.language||'en',{hour:'2-digit',minute:'2-digit'});let bp=[];if(msg.text)bp.push(escapeHtml(msg.text));if(msg.hasFile){const u='/api/room/'+roomId+'/file/'+msg.id+'?pin='+roomPin;if(msg.type==='image'){bp.push('<img src="'+u+'" alt="'+(msg.fileName||'image')+'" onclick="window.open(\\''+u+'\\')" loading="lazy">')}else{const sz=msg.fileSize?formatSize(msg.fileSize):'';bp.push('<div class="file-attach"><span class="file-icon">&#x1f4c4;</span><div class="file-info"><span class="file-name">'+escapeHtml(msg.fileName||'file')+'</span>'+(sz?'<span class="file-size">'+sz+'</span>':'')+'</div><a href="'+u+'" download>Download</a></div>')}}row.innerHTML='<div class="msg-sender">'+escapeHtml(msg.sender)+'</div><div class="msg-bubble">'+bp.join('<div style="margin:4px 0"></div>')+'</div><div class="msg-time">'+ts+'</div>';messagesEl.appendChild(row)}
 function escapeHtml(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML}
 function formatSize(b){if(!b)return'';if(b<1024)return b+' B';if(b<1024*1024)return(b/1024).toFixed(1)+' KB';return(b/(1024*1024)).toFixed(1)+' MB'}
 let turnstileSiteKey='';
@@ -671,13 +719,13 @@ function setLandingContext(isJoining){if(isJoining){document.body.classList.add(
 async function loadRoomList(){const el=$('#room-list');if(!el)return;try{const res=await fetch('/api/rooms');const rooms=await res.json();if(!rooms.length){el.innerHTML='<div class="room-list-empty">'+t('noRooms')+'</div>';return}el.innerHTML=rooms.map(r=>{const expH=Math.max(0,Math.round((r.lastActivityAt+r.ttlHours*3600000-Date.now())/3600000*10)/10);return'<div class="room-item" data-room="'+r.id+'"><span class="room-id">#'+r.id+'</span><span class="room-meta"><span>'+(r.participants||0)+' '+t('roomMembers')+'</span><span>'+(r.messageCount||0)+' '+t('roomMsgs')+'</span><span>'+expH+'h '+t('roomExpires')+'</span></span><button class="btn-join-sm" onclick="preJoin(\\''+r.id+'\\')">'+t('btnRoomJoin')+'</button></div>'}).join('')}catch{el.innerHTML='<div class="room-list-empty">'+t('noRooms')+'</div>'}}
 function preJoin(id){$('#join-room-id').value=id;$('#join-pin').focus();window.scrollTo({top:0,behavior:'smooth'})}
 if(urlRoomId){setLandingContext(true);const params=new URLSearchParams(location.search);const pin=params.get('pin');if(pin){joinAndEnter(urlRoomId,pin)}else{$('#join-room-id').value=urlRoomId;$('#join-pin').focus()}}else{setLandingContext(false)}
-</script>
+<\/script>
 </body>
 </html>`;
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request: Request, env: Env): Promise<Response> {
     return handleRequest(request, env);
   },
 };

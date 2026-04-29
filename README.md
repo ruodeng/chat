@@ -2,7 +2,7 @@
 
 Temporary, self-destructing chat rooms. Create a room, share the link and PIN, chat with files and images -- everything auto-expires after inactivity.
 
-**Demo: [share-chat.ruo.workers.dev](https://share-chat.ruo.workers.dev)**
+**Demo: [10086.review](https://10086.review)**
 
 No registration required. No data persistence beyond the TTL.
 

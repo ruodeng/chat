@@ -2,7 +2,7 @@
 
 临时聊天室 -- 创建房间，分享链接和密码，发送文字、图片、文件，无活动后自动销毁。
 
-**在线体验: [share-chat.ruo.workers.dev](https://share-chat.ruo.workers.dev)**
+**在线体验: [10086.review](https://10086.review)**
 
 无需注册，阅后即焚。
 

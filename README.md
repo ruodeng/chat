@@ -59,7 +59,7 @@ Update `wrangler.toml` with your KV namespace ID and R2 bucket name:
 
 ```toml
 name = "share-chat"
-main = "src/worker.js"
+main = "src/worker.ts"
 compatibility_date = "2024-01-01"
 
 [[kv_namespaces]]
@@ -122,7 +122,7 @@ All room operations require the room ID in the URL path. Message and file operat
     ├── wrangler.toml           # Wrangler config
     ├── package.json
     └── src/
-        └── worker.js           # Cloudflare Worker (includes embedded HTML)
+        └── worker.ts           # Cloudflare Worker (includes embedded HTML)
 ```
 
 ## License

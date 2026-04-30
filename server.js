@@ -112,6 +112,7 @@ app.post('/api/room/create', async (req, res) => {
     const remaining = Math.ceil((cbl.until - now) / 1000 / 60);
     return res.status(429).json({
       error: `创建过于频繁，${remaining} 分钟后再试`,
+      errorCode: 'CREATE_BLACKLISTED',
       blacklisted: true,
       retryAfter: cbl.until - now,
     });
@@ -127,6 +128,7 @@ app.post('/api/room/create', async (req, res) => {
     createBlacklist.set(ip, { until: now + 3600_000 });
     return res.status(429).json({
       error: '创建过于频繁，已被限制 60 分钟',
+      errorCode: 'CREATE_RATE_LIMIT',
       blacklisted: true,
       retryAfter: 3600_000,
     });
@@ -139,6 +141,7 @@ app.post('/api/room/create', async (req, res) => {
       if (!token) {
         return res.status(403).json({
           error: '创建过于频繁，需要完成验证',
+          errorCode: 'CREATE_NEED_VERIFY',
           requireTurnstile: true,
         });
       }
@@ -146,6 +149,7 @@ app.post('/api/room/create', async (req, res) => {
       if (!ok) {
         return res.status(403).json({
           error: '验证失败，请重试',
+          errorCode: 'VERIFY_FAILED',
           requireTurnstile: true,
         });
       }
@@ -156,6 +160,7 @@ app.post('/api/room/create', async (req, res) => {
         const wait = Math.ceil((cooldownEnd - now) / 1000);
         return res.status(429).json({
           error: `创建过于频繁，请等待 ${wait} 秒后再试`,
+          errorCode: 'CREATE_COOLDOWN',
           retryAfter: cooldownEnd - now,
         });
       }
@@ -204,7 +209,7 @@ async function verifyTurnstile(token) {
 app.post('/api/room/:roomId/join', async (req, res) => {
   const rooms = loadRooms();
   const room = rooms[req.params.roomId];
-  if (!room) return res.status(404).json({ error: '房间不存在或已过期' });
+  if (!room) return res.status(404).json({ error: '房间不存在或已过期', errorCode: 'ROOM_NOT_FOUND' });
 
   const ip = clientIp(req);
   const now = Date.now();
@@ -216,6 +221,7 @@ app.post('/api/room/:roomId/join', async (req, res) => {
     const remaining = Math.ceil((bl.until - now) / 1000 / 60);
     return res.status(429).json({
       error: `尝试次数过多，已被暂时拉黑，${remaining} 分钟后重试`,
+      errorCode: 'JOIN_BLACKLISTED',
       blacklisted: true,
       retryAfter: bl.until - now,
     });
@@ -232,6 +238,7 @@ app.post('/api/room/:roomId/join', async (req, res) => {
       const wait = Math.ceil((delay - elapsed) / 1000);
       return res.status(429).json({
         error: `请等待 ${wait} 秒后再试`,
+        errorCode: 'JOIN_COOLDOWN',
         retryAfter: delay - elapsed,
         fails: fails.count,
       });
@@ -244,6 +251,7 @@ app.post('/api/room/:roomId/join', async (req, res) => {
     if (!token) {
       return res.status(403).json({
         error: '密码错误次数过多，需要完成验证',
+        errorCode: 'JOIN_NEED_VERIFY',
         requireTurnstile: true,
         fails: fails.count,
       });
@@ -252,6 +260,7 @@ app.post('/api/room/:roomId/join', async (req, res) => {
     if (!ok) {
       return res.status(403).json({
         error: '验证失败，请重试',
+        errorCode: 'VERIFY_FAILED',
         requireTurnstile: true,
         fails: fails.count,
       });
@@ -276,6 +285,7 @@ app.post('/api/room/:roomId/join', async (req, res) => {
     blacklist.set(ip, { until: now + 30 * 60_000 });
     return res.status(429).json({
       error: '尝试次数过多，已被拉黑 30 分钟',
+      errorCode: 'JOIN_RATE_LIMIT',
       blacklisted: true,
       retryAfter: 30 * 60_000,
     });
@@ -288,6 +298,8 @@ app.post('/api/room/:roomId/join', async (req, res) => {
 
   res.status(403).json({
     error: msg,
+    errorCode: 'WRONG_PIN',
+    remaining,
     fails: fails.count,
     requireTurnstile: TURNSTILE_SITE_KEY && fails.count >= 3,
   });
@@ -297,7 +309,7 @@ app.post('/api/room/:roomId/join', async (req, res) => {
 app.get('/api/room/:roomId/info', (req, res) => {
   const rooms = loadRooms();
   const room = rooms[req.params.roomId];
-  if (!room) return res.status(404).json({ error: '房间不存在或已过期' });
+  if (!room) return res.status(404).json({ error: '房间不存在或已过期', errorCode: 'ROOM_NOT_FOUND' });
   const senders = new Set(room.messages.map(m => m.sender));
   res.json({
     roomId: room.id,
@@ -313,8 +325,8 @@ app.get('/api/room/:roomId/info', (req, res) => {
 app.post('/api/room/:roomId/send', upload.single('file'), (req, res) => {
   const rooms = loadRooms();
   const room = rooms[req.params.roomId];
-  if (!room) return res.status(404).json({ error: '房间不存在或已过期' });
-  if (req.body.pin !== room.pin) return res.status(403).json({ error: '密码错误' });
+  if (!room) return res.status(404).json({ error: '房间不存在或已过期', errorCode: 'ROOM_NOT_FOUND' });
+  if (req.body.pin !== room.pin) return res.status(403).json({ error: '密码错误', errorCode: 'WRONG_PIN' });
 
   const ip = clientIp(req);
   const sender = (req.body.sender || '').trim().slice(0, 30) || assignName(room, ip);
@@ -322,7 +334,7 @@ app.post('/api/room/:roomId/send', upload.single('file'), (req, res) => {
   const text = req.body.text?.trim() || null;
   const file = req.file;
 
-  if (!text && !file) return res.status(400).json({ error: 'Empty message' });
+  if (!text && !file) return res.status(400).json({ error: 'Empty message', errorCode: 'EMPTY_MESSAGE' });
 
   let type = 'text';
   if (file) {
@@ -350,8 +362,8 @@ app.post('/api/room/:roomId/send', upload.single('file'), (req, res) => {
 app.get('/api/room/:roomId/messages', (req, res) => {
   const rooms = loadRooms();
   const room = rooms[req.params.roomId];
-  if (!room) return res.status(404).json({ error: '房间不存在或已过期' });
-  if (req.query.pin !== room.pin) return res.status(403).json({ error: '密码错误' });
+  if (!room) return res.status(404).json({ error: '房间不存在或已过期', errorCode: 'ROOM_NOT_FOUND' });
+  if (req.query.pin !== room.pin) return res.status(403).json({ error: '密码错误', errorCode: 'WRONG_PIN' });
 
   const since = parseInt(req.query.since) || 0;
   const filtered = room.messages.filter(m => m.createdAt > since);
@@ -372,11 +384,11 @@ app.get('/api/room/:roomId/messages', (req, res) => {
 app.get('/api/room/:roomId/file/:msgId', (req, res) => {
   const rooms = loadRooms();
   const room = rooms[req.params.roomId];
-  if (!room) return res.status(404).json({ error: '房间不存在或已过期' });
-  if (req.query.pin !== room.pin) return res.status(403).json({ error: '密码错误' });
+  if (!room) return res.status(404).json({ error: '房间不存在或已过期', errorCode: 'ROOM_NOT_FOUND' });
+  if (req.query.pin !== room.pin) return res.status(403).json({ error: '密码错误', errorCode: 'WRONG_PIN' });
 
   const msg = room.messages.find(m => m.id === req.params.msgId);
-  if (!msg || !msg.fileData) return res.status(404).json({ error: 'Not found' });
+  if (!msg || !msg.fileData) return res.status(404).json({ error: 'Not found', errorCode: 'NOT_FOUND' });
 
   const data = Buffer.from(msg.fileData, 'base64');
   if (msg.type === 'image') {
@@ -393,8 +405,8 @@ app.get('/api/room/:roomId/file/:msgId', (req, res) => {
 app.delete('/api/room/:roomId/message/:msgId', (req, res) => {
   const rooms = loadRooms();
   const room = rooms[req.params.roomId];
-  if (!room) return res.status(404).json({ error: '房间不存在或已过期' });
-  if (req.body.pin !== room.pin) return res.status(403).json({ error: '密码错误' });
+  if (!room) return res.status(404).json({ error: '房间不存在或已过期', errorCode: 'ROOM_NOT_FOUND' });
+  if (req.body.pin !== room.pin) return res.status(403).json({ error: '密码错误', errorCode: 'WRONG_PIN' });
 
   const i = room.messages.findIndex(m => m.id === req.params.msgId);
   if (i !== -1) room.messages.splice(i, 1);

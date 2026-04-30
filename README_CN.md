@@ -59,7 +59,7 @@ wrangler r2 bucket create share-chat-files
 
 ```toml
 name = "share-chat"
-main = "src/worker.js"
+main = "src/worker.ts"
 compatibility_date = "2024-01-01"
 
 [[kv_namespaces]]
@@ -122,7 +122,7 @@ wrangler secret put TURNSTILE_SECRET_KEY
     ├── wrangler.toml           # Wrangler 配置
     ├── package.json
     └── src/
-        └── worker.js           # Cloudflare Worker（内嵌 HTML）
+        └── worker.ts           # Cloudflare Worker（内嵌 HTML）
 ```
 
 ## 开源协议

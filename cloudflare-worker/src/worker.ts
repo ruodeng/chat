@@ -898,7 +898,7 @@ function playBeep(){try{if(!audioCtx)audioCtx=new(window.AudioContext||window.we
 function parseMarkdown(tx){tx=escapeHtml(tx);tx=tx.replace(/\\*\\*(.+?)\\*\\*/g,'<strong>$1</strong>');tx=tx.replace(/\\*(.+?)\\*/g,'<em>$1</em>');tx=tx.replace(/\x60(.+?)\x60/g,'<code>$1</code>');return tx}
 // Reply functions
 function showReply(id,sender,tx){replyTarget=id;$('#quote-text').textContent=sender+': '+(tx||'(file)');$('#reply-quote').style.display='flex';textInput.focus()}
-$('#quote-close').addEventListener('click',()=>{replyTarget=null;$('#reply-quote').style.display='none'});
+const qc=$('#quote-close');if(qc)qc.addEventListener('click',()=>{replyTarget=null;$('#reply-quote').style.display='none'});
 
 function toast(m){let tEl=$('.toast');if(!tEl){tEl=document.createElement('div');tEl.className='toast';document.body.appendChild(tEl)}tEl.textContent=m;tEl.classList.add('show');clearTimeout(tEl._tid);tEl._tid=setTimeout(()=>tEl.classList.remove('show'),1800)}
 function resetPolling(){pollInterval=2000;clearInterval(pollingTimer);pollingTimer=setInterval(fetchMessages,pollInterval)}

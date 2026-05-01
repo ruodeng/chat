@@ -69,7 +69,7 @@ function genRoomId(): string {
   return s;
 }
 function genPin(): string {
-  const arr = new Uint8Array(1);
+  const arr = new Uint16Array(1);
   crypto.getRandomValues(arr);
   return String(1000 + (arr[0] % 9000));
 }
@@ -175,12 +175,17 @@ async function getRoomIndex(kv: KVNamespace): Promise<RoomIndexEntry[]> {
 async function addRoomToIndex(kv: KVNamespace, room: Room): Promise<void> {
   const index = await getRoomIndex(kv);
   index.push({ id: room.id, createdAt: room.createdAt, lastActivityAt: room.lastActivityAt, ttlHours: room.ttlHours, participants: Object.keys(room.ipNames || {}).length, messageCount: 0 });
-  await kv.put('rooms:index', JSON.stringify(index), { expirationTtl: 86400 });
+  await kv.put('rooms:index', JSON.stringify(index), { expirationTtl: 90000 });
 }
 async function updateRoomInIndex(kv: KVNamespace, roomId: string, data: Partial<RoomIndexEntry>): Promise<void> {
   const index = await getRoomIndex(kv);
   const idx = index.findIndex(r => r.id === roomId);
-  if (idx !== -1) { Object.assign(index[idx], data); await kv.put('rooms:index', JSON.stringify(index), { expirationTtl: 86400 }); }
+  if (idx !== -1) { Object.assign(index[idx], data); await kv.put('rooms:index', JSON.stringify(index), { expirationTtl: 90000 }); }
+}
+async function removeRoomFromIndex(kv: KVNamespace, roomId: string): Promise<void> {
+  const index = await getRoomIndex(kv);
+  const filtered = index.filter(r => r.id !== roomId);
+  await kv.put('rooms:index', JSON.stringify(filtered), { expirationTtl: 90000 });
 }
 
 // ============ R2 Cleanup ============
@@ -190,7 +195,7 @@ async function cleanupRoomFiles(bucket: R2Bucket, roomId: string): Promise<void>
   do {
     const listed = await bucket.list({ prefix, cursor, limit: 1000 });
     if (listed.objects.length) {
-      await Promise.all(listed.objects.map(obj => bucket.delete(obj.key)));
+      await Promise.allSettled(listed.objects.map(obj => bucket.delete(obj.key)));
     }
     if (!listed.truncated) break;
     cursor = listed.cursor;
@@ -210,7 +215,11 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
   // CORS for API
   if (path.startsWith('/api/')) {
     const origin = request.headers.get('Origin') || '';
-    const allowed = origin === 'https://10086.review' || origin.startsWith('http://localhost') ? origin : 'https://10086.review';
+    let isAllowed = origin === 'https://10086.review';
+    if (!isAllowed && origin) {
+      try { isAllowed = new URL(origin).hostname === 'localhost'; } catch { /* invalid origin */ }
+    }
+    const allowed = isAllowed ? origin : 'https://10086.review';
     if (method === 'OPTIONS') {
       return new Response(null, { headers: { 'Access-Control-Allow-Origin': allowed, 'Access-Control-Allow-Methods': 'GET,POST,DELETE,OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type,X-Room-Pin' } });
     }
@@ -304,7 +313,7 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
     if (msg.type === 'image') {
       headers['Content-Disposition'] = `inline; filename="${safeName}"`;
     } else {
-      headers['Content-Disposition'] = `attachment; filename="${safeName}"; filename*=UTF-8''${encodeURIComponent(msg.fileName || 'file')}`;
+      headers['Content-Disposition'] = `attachment; filename="${safeName}"; filename*=UTF-8''${encodeURIComponent(safeName)}`;
     }
     return new Response(obj.body, { headers });
   }
@@ -318,6 +327,7 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
     if (pin !== room.pin) return json({ error: 'Wrong PIN', errorCode: 'WRONG_PIN' }, 403);
     await cleanupRoomFiles(env.FILES, delRoomMatch[1]);
     await deleteRoom(kv, delRoomMatch[1]);
+    await removeRoomFromIndex(kv, delRoomMatch[1]);
     return json({ ok: true });
   }
 
@@ -333,7 +343,7 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
 
   // ============ Serve Frontend ============
   if (path === '/' || path.match(/^\/room\/[a-z0-9]+$/)) {
-    return new Response(getHTML(), {
+    return new Response(getHTML(parseAcceptLanguage(request)), {
       headers: { 'Content-Type': 'text/html; charset=utf-8' },
     });
   }
@@ -476,7 +486,6 @@ async function handleSendMessage(request: Request, roomId: string, ip: string, k
   if (pin !== room.pin) return json({ error: 'Wrong PIN', errorCode: 'WRONG_PIN' }, 403);
 
   const sender = ((formData.get('sender') as string) || '').trim().slice(0, 30) || assignName(room, ip);
-  assignName(room, ip);
   const text = (formData.get('text') as string)?.trim() || null;
   const file = formData.get('file') as File | null;
 
@@ -535,6 +544,7 @@ async function handleDeleteMessage(request: Request, roomId: string, msgId: stri
   }
   room.messages.splice(idx, 1);
   await saveRoom(kv, room);
+  await updateRoomInIndex(kv, roomId, { messageCount: (room.messages || []).length, lastActivityAt: room.lastActivityAt });
   return json({ ok: true });
 }
 
@@ -597,12 +607,12 @@ document.getElementById('page-footer').innerHTML='<a href="/about">'+tl('footerA
 }
 
 // ============ HTML Template ============
-function getHTML(): string {
+function getHTML(lang: string = 'en'): string {
   return `<!DOCTYPE html>
-<html lang="en">
+<html lang="${lang}">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>File Share</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
@@ -755,12 +765,12 @@ body.is-joining #app-footer{display:none!important}
 <div class="empty-hint" id="empty-hint"><span data-i18n="emptyHint">&#x1f44b; Send a message to start chatting</span><br><span style="font-size:11px" data-i18n="emptySub">Text, images, files | Files auto-upload on selection | Ctrl+V to paste image</span></div>
 </div>
 <div class="input-area">
-<button class="btn-icon" id="btn-attach" title="&#x1f4ce;">&#x1f4ce;</button>
+<button class="btn-icon" id="btn-attach" title="&#x1f4ce;" aria-label="Attach file">&#x1f4ce;</button>
 <textarea id="text-input" rows="1" data-i18n-ph="phInput" placeholder="Type a message... (Enter to send)"></textarea>
 <button class="btn-send" id="btn-send" data-i18n="btnSend" disabled>Send</button>
 </div>
 </div>
-<div class="modal-overlay" id="share-modal">
+<div class="modal-overlay" id="share-modal" role="dialog" aria-modal="true" aria-label="Share Room">
 <div class="modal">
 <h2 data-i18n="shareTitle">Share Room</h2>
 <p style="font-size:13px;color:#888" data-i18n="shareDesc">Scan QR code or send link</p>
@@ -789,35 +799,35 @@ const t=k=>(T[lang]||T[lang.split('-')[0]]||T.en)[k]||T.en[k]||k;
 function translateError(d){if(d.errorCode){const m=(k,p)=>{let s=t(k);for(const[k2,v]of Object.entries(p))s=s.replace('{'+k2+'}',v);return s};switch(d.errorCode){case'CREATE_COOLDOWN':return m('errCreateCooldown',{s:d.wait});case'CREATE_BLACKLISTED':case'CREATE_RATE_LIMIT':return m('errCreateBlacklisted',{m:d.remaining||60});case'JOIN_COOLDOWN':return m('errCooldown',{s:d.wait});case'JOIN_BLACKLISTED':case'JOIN_RATE_LIMIT':return m('errBlacklisted',{m:d.remaining||30});case'CREATE_NEED_VERIFY':case'JOIN_NEED_VERIFY':return t('errNeedVerify');case'VERIFY_FAILED':return t('errVerifyFail');case'WRONG_PIN':return d.remaining!=null?m('errWrongAttempts',{n:d.remaining}):t('toastPinError');case'ROOM_NOT_FOUND':return t('errRoomNotFound');case'EMPTY_MESSAGE':return t('errEmptyMsg');case'FILE_NOT_FOUND':return t('errFileNotFound');case'MESSAGE_TOO_LONG':return t('errMessageTooLong');case'FILE_TOO_LARGE':return t('errFileTooLarge')}}return d.error||t('toastNetError')}
 document.querySelectorAll('[data-i18n]').forEach(el=>{const k=el.getAttribute('data-i18n');if(T.en[k])el.innerHTML=t(k)});
 document.querySelectorAll('[data-i18n-ph]').forEach(el=>{const k=el.getAttribute('data-i18n-ph');if(T.en[k])el.placeholder=t(k)});
-let roomId=null,roomPin=null,roomTtl=1,myName='',lastTs=0,renderedIds=new Set(),pollingTimer=null,joinFailCount=0,turnstileEnabled=false,turnstileToken=null,turnstileWidgetId=null,cooldownTimer=null,lastActivityAt=0,countdownTimer=null,pollInterval=2000,pollMaxInterval=10000,pollStep=1500;
+let roomId=null,roomPin=null,roomTtl=1,myName='',lastTs=0,renderedIds=new Set(),pollingTimer=null,joinFailCount=0,turnstileEnabled=false,turnstileToken=null,turnstileWidgetId=null,createCooldownTimer=null,joinCooldownTimer=null,lastActivityAt=0,countdownTimer=null,pollInterval=2000,pollMaxInterval=10000,pollStep=1500;
 const $=s=>document.querySelector(s),landingView=$('#view-landing'),chatView=$('#view-chat'),messagesEl=$('#messages'),textInput=$('#text-input'),fileInput=$('#file-input'),btnSend=$('#btn-send'),roomTag=$('#room-tag'),shareModal=$('#share-modal');
 function toast(m){let tEl=$('.toast');if(!tEl){tEl=document.createElement('div');tEl.className='toast';document.body.appendChild(tEl)}tEl.textContent=m;tEl.classList.add('show');clearTimeout(tEl._tid);tEl._tid=setTimeout(()=>tEl.classList.remove('show'),1800)}
 function resetPolling(){pollInterval=2000;clearInterval(pollingTimer);pollingTimer=setInterval(fetchMessages,pollInterval)}
 function getRoomFromURL(){const m=location.pathname.match(/^\\/room\\/([a-z0-9]+)/);if(m)return m[1];return null}
-function saveRoomLocal(id,pin){try{const rooms=JSON.parse(localStorage.getItem('sc-rooms')||'[]');const idx=rooms.findIndex(r=>r.id===id);if(idx>=0)rooms[idx].pin=pin;else rooms.push({id,pin,joinedAt:Date.now()});localStorage.setItem('sc-rooms',JSON.stringify(rooms))}catch{}}
+function saveRoomLocal(id,pin,ttlHours){try{const rooms=JSON.parse(localStorage.getItem('sc-rooms')||'[]');const idx=rooms.findIndex(r=>r.id===id);if(idx>=0){rooms[idx].pin=pin;if(ttlHours)rooms[idx].ttlHours=ttlHours}else{rooms.push({id,pin,joinedAt:Date.now(),ttlHours:ttlHours||1})}localStorage.setItem('sc-rooms',JSON.stringify(rooms))}catch{}}
 function getSavedRooms(){try{return JSON.parse(localStorage.getItem('sc-rooms')||'[]')}catch{return[]}}
-async function doCreateRoom(){try{const ttl=parseInt($('#ttl-select').value)||1;const body={ttl};if(turnstileToken){body.turnstile=turnstileToken;turnstileToken=null}const res=await fetch('/api/room/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const data=await res.json();if(res.ok){resetJoinForm();roomTtl=data.ttlHours||1;saveRoomLocal(data.roomId,data.pin);joinAndEnter(data.roomId,data.pin);return}if(data.blacklisted){showJoinError(translateError(data));startCreateCooldown(data.retryAfter);return}if(data.retryAfter){showJoinError(translateError(data));startCreateCooldown(data.retryAfter);return}if(data.requireTurnstile){showJoinError(translateError(data));await maybeShowTurnstile();$('#btn-create').textContent=t('btnVerifyCreate');return}toast(translateError(data))}catch{toast(t('toastNetError'))}}
-function startCreateCooldown(ms){const btn=$('#btn-create');btn.disabled=true;clearInterval(cooldownTimer);const end=Date.now()+ms;const tick=()=>{const left=Math.ceil((end-Date.now())/1000);if(left<=0){btn.disabled=false;btn.textContent=t('btnCreate');showJoinError('');clearInterval(cooldownTimer);return}const m=Math.floor(left/60),s=left%60;btn.textContent=m?m+t('btnMinRetry')+s+t('btnSecRetry'):s+t('btnRetry')};tick();cooldownTimer=setInterval(tick,1000)}
+async function doCreateRoom(){try{const ttl=parseInt($('#ttl-select').value)||1;const body={ttl};if(turnstileToken){body.turnstile=turnstileToken;turnstileToken=null}const res=await fetch('/api/room/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const data=await res.json();if(res.ok){resetJoinForm();roomTtl=data.ttlHours||1;saveRoomLocal(data.roomId,data.pin,data.ttlHours);joinAndEnter(data.roomId,data.pin);return}if(data.blacklisted){showJoinError(translateError(data));startCreateCooldown(data.retryAfter);return}if(data.retryAfter){showJoinError(translateError(data));startCreateCooldown(data.retryAfter);return}if(data.requireTurnstile){showJoinError(translateError(data));await maybeShowTurnstile();$('#btn-create').textContent=t('btnVerifyCreate');return}toast(translateError(data))}catch{toast(t('toastNetError'))}}
+function startCreateCooldown(ms){const btn=$('#btn-create');btn.disabled=true;clearInterval(createCooldownTimer);const end=Date.now()+ms;const tick=()=>{const left=Math.ceil((end-Date.now())/1000);if(left<=0){btn.disabled=false;btn.textContent=t('btnCreate');showJoinError('');clearInterval(createCooldownTimer);return}const m=Math.floor(left/60),s=left%60;btn.textContent=m?m+t('btnMinRetry')+s+t('btnSecRetry'):s+t('btnRetry')};tick();createCooldownTimer=setInterval(tick,1000)}
 $('#btn-create').addEventListener('click',doCreateRoom);
 $('#btn-join').addEventListener('click',()=>{const id=$('#join-room-id').value.trim().toLowerCase(),pin=$('#join-pin').value.trim();if(!id||pin.length!==4)return toast(t('phNeedRoomId'));joinAndEnter(id,pin)});
 $('#join-pin').addEventListener('keydown',e=>{if(e.key==='Enter')$('#btn-join').click()});
 $('#join-room-id').addEventListener('keydown',e=>{if(e.key==='Enter')$('#join-pin').focus()});
 function showJoinError(m){const el=$('#join-error');el.textContent=m;el.style.display=m?'':'none'}
-function startCooldown(ms,btnText){const btn=$('#btn-join');btn.disabled=true;clearInterval(cooldownTimer);const end=Date.now()+ms;const tick=()=>{const left=Math.ceil((end-Date.now())/1000);if(left<=0){btn.disabled=false;btn.textContent=btnText;showJoinError('');clearInterval(cooldownTimer);return}const m=Math.floor(left/60),s=left%60;btn.textContent=m?m+t('btnMinRetry')+s+t('btnSecRetry'):s+t('btnRetry');showJoinError(t('errWait')+(m?m+t('btnMinRetry'):'')+s+t('errSecRetry'))};tick();cooldownTimer=setInterval(tick,1000)}
-function resetJoinForm(){joinFailCount=0;clearInterval(cooldownTimer);$('#btn-join').disabled=false;$('#btn-join').textContent=t('btnJoin');showJoinError('');$('#turnstile-container').style.display='none';turnstileToken=null;if(turnstileWidgetId)turnstile.reset(turnstileWidgetId)}
+function startCooldown(ms,btnText){const btn=$('#btn-join');btn.disabled=true;clearInterval(joinCooldownTimer);const end=Date.now()+ms;const tick=()=>{const left=Math.ceil((end-Date.now())/1000);if(left<=0){btn.disabled=false;btn.textContent=btnText;showJoinError('');clearInterval(joinCooldownTimer);return}const m=Math.floor(left/60),s=left%60;btn.textContent=m?m+t('btnMinRetry')+s+t('btnSecRetry'):s+t('btnRetry');showJoinError(t('errWait')+(m?m+t('btnMinRetry'):'')+s+t('errSecRetry'))};tick();joinCooldownTimer=setInterval(tick,1000)}
+function resetJoinForm(){joinFailCount=0;clearInterval(joinCooldownTimer);$('#btn-join').disabled=false;$('#btn-join').textContent=t('btnJoin');showJoinError('');$('#turnstile-container').style.display='none';turnstileToken=null;if(turnstileWidgetId)turnstile.reset(turnstileWidgetId)}
 async function loadTurnstile(){if(window.turnstile)return;return new Promise(r=>{const s=document.createElement('script');s.src='https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';s.onload=r;document.head.appendChild(s)})}
 async function maybeShowTurnstile(){if(!turnstileEnabled)return;await loadTurnstile();$('#turnstile-container').style.display='';if(!turnstileWidgetId){turnstileWidgetId=window.turnstile.render('#turnstile-container',{sitekey:turnstileSiteKey,callback:tk=>{turnstileToken=tk},'expired-callback':()=>{turnstileToken=null},theme:'dark'})}else{window.turnstile.reset(turnstileWidgetId)}}
-async function joinAndEnter(id,pin){const body={pin};if(turnstileToken){body.turnstile=turnstileToken;turnstileToken=null}try{const res=await fetch('/api/room/'+id+'/join',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const d=await res.json();if(res.ok){resetJoinForm();myName=d.name;saveRoomLocal(id,pin);try{const ir=await fetch('/api/room/'+id+'/info');const info=await ir.json();roomTtl=info.ttlHours||1}catch{roomTtl=1}enterRoom(id,pin);return}joinFailCount=d.fails||joinFailCount;if(d.errorCode==='ROOM_NOT_FOUND'){removeRoomLocal(id);toast(translateError(d));return}if(d.blacklisted){showJoinError(translateError(d));startCooldown(d.retryAfter,t('btnJoin'));return}if(d.retryAfter&&!d.requireTurnstile){showJoinError(translateError(d));startCooldown(d.retryAfter,t('btnJoin'));return}if(d.requireTurnstile){showJoinError(translateError(d));await maybeShowTurnstile();$('#btn-join').textContent=t('btnVerifyJoin');return}showJoinError(translateError(d));$('#join-pin').value='';$('#join-pin').focus()}catch{toast(t('toastNetError'))}}
+async function joinAndEnter(id,pin){const body={pin};if(turnstileToken){body.turnstile=turnstileToken;turnstileToken=null}try{const res=await fetch('/api/room/'+id+'/join',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const d=await res.json();if(res.ok){resetJoinForm();myName=d.name;try{const ir=await fetch('/api/room/'+id+'/info');const info=await ir.json();roomTtl=info.ttlHours||1}catch{roomTtl=1}saveRoomLocal(id,pin,roomTtl);enterRoom(id,pin);return}joinFailCount=d.fails||joinFailCount;if(d.errorCode==='ROOM_NOT_FOUND'){removeRoomLocal(id);toast(translateError(d));return}if(d.blacklisted){showJoinError(translateError(d));startCooldown(d.retryAfter,t('btnJoin'));return}if(d.retryAfter&&!d.requireTurnstile){showJoinError(translateError(d));startCooldown(d.retryAfter,t('btnJoin'));return}if(d.requireTurnstile){showJoinError(translateError(d));await maybeShowTurnstile();$('#btn-join').textContent=t('btnVerifyJoin');return}showJoinError(translateError(d));$('#join-pin').value='';$('#join-pin').focus()}catch{toast(t('toastNetError'))}}
 function enterRoom(id,pin){roomId=id;roomPin=pin;sessionStorage.setItem('roomId',id);sessionStorage.setItem('roomPin',pin);history.replaceState(null,'','/room/'+id);landingView.style.display='none';chatView.classList.add('active');$('#app-footer').style.display='none';$('#scroll-bottom').style.display='none';roomTag.textContent='#'+id;lastTs=0;renderedIds.clear();messagesEl.innerHTML='<div class="empty-hint"><span>'+t('emptyHint')+'</span><br><span style="font-size:11px">'+t('emptySub')+'</span></div>';fetchMessages();if(pollingTimer)clearInterval(pollingTimer);pollInterval=2000;pollingTimer=setInterval(fetchMessages,pollInterval);if(countdownTimer)clearInterval(countdownTimer);countdownTimer=setInterval(()=>{if(!lastActivityAt)return;const left=Math.max(0,(lastActivityAt+roomTtl*3600000)-Date.now());if(left<=0){$('#ttl-info').textContent=t('toastExpired');return}const h=Math.floor(left/3600000),m=Math.floor((left%3600000)/60000),s=Math.floor((left%60000)/1000);$('#ttl-info').textContent=h>0?h+':'+String(m).padStart(2,'0')+':'+String(s).padStart(2,'0'):m+':'+String(s).padStart(2,'0')},1000)}
 messagesEl.addEventListener('scroll',()=>{const el=messagesEl;const atBottom=el.scrollHeight-el.scrollTop-el.clientHeight<80;$('#scroll-bottom').style.display=atBottom?'none':''});
 $('#scroll-bottom').addEventListener('click',()=>{messagesEl.scrollTop=messagesEl.scrollHeight;$('#scroll-bottom').style.display='none'});
 $('#btn-leave').addEventListener('click',()=>{if(!confirm(t('confirmLeave')))return;if(pollingTimer)clearInterval(pollingTimer);if(countdownTimer)clearInterval(countdownTimer);sessionStorage.removeItem('roomId');sessionStorage.removeItem('roomPin');roomId=null;roomPin=null;myName='';lastActivityAt=0;history.replaceState(null,'','/');chatView.classList.remove('active');landingView.style.display='';$('#app-footer').style.display='';$('#scroll-bottom').style.display='none';loadRoomList()});
-$('#btn-share').addEventListener('click',()=>{const link=location.origin+'/room/'+roomId;$('#share-link').value=link;$('#pin-display').textContent=roomPin;const qr=$('#qr-container');qr.innerHTML='';if(typeof QRCode!=='undefined'){new QRCode(qr,{text:link+'?pin='+roomPin,width:180,height:180,colorDark:'#000',colorLight:'#fff'})}else{qr.innerHTML='<p style="color:#888;font-size:13px">'+t('qrFail')+'<br>'+t('qrFailSub')+'</p>'}shareModal.classList.add('show')});
+$('#btn-share').addEventListener('click',()=>{const link=location.origin+'/room/'+roomId;$('#share-link').value=link;$('#pin-display').textContent=roomPin;const qr=$('#qr-container');qr.innerHTML='';if(typeof QRCode!=='undefined'){new QRCode(qr,{text:link,width:180,height:180,colorDark:'#000',colorLight:'#fff'})}else{qr.innerHTML='<p style="color:#888;font-size:13px">'+t('qrFail')+'<br>'+t('qrFailSub')+'</p>'}shareModal.classList.add('show')});
 $('#btn-close-share').addEventListener('click',()=>shareModal.classList.remove('show'));
 shareModal.addEventListener('click',e=>{if(e.target===shareModal)shareModal.classList.remove('show')});
 $('#btn-copy-link').addEventListener('click',()=>{const link=$('#share-link').value;const text=t('chatTitle')+': '+link+'\\nPIN: '+roomPin;navigator.clipboard.writeText(text).then(()=>toast(t('toastCopied')))});
 $('#btn-attach').addEventListener('click',()=>fileInput.click());
-fileInput.addEventListener('change',()=>{const files=[...fileInput.files];fileInput.value='';for(const f of files)sendFile(f)});
+fileInput.addEventListener('change',async()=>{const files=[...fileInput.files];fileInput.value='';for(const f of files)await sendFile(f)});
 document.addEventListener('paste',e=>{if(document.activeElement===textInput)return;if(!chatView.classList.contains('active'))return;const items=e.clipboardData?.items;if(!items)return;for(const item of items){if(item.type.startsWith('image/')){e.preventDefault();sendFile(item.getAsFile())}}});
 async function sendFile(file){const inputArea=$('.input-area');inputArea.classList.add('uploading');const fd=new FormData();fd.append('pin',roomPin);fd.append('sender',myName);fd.append('file',file);try{const res=await fetch('/api/room/'+roomId+'/send',{method:'POST',body:fd});if(!res.ok){const d=await res.json().catch(()=>({}));toast(translateError(d))}else{lastActivityAt=Date.now();resetPolling();fetchMessages()}}catch{toast(t('toastNetError'))}inputArea.classList.remove('uploading')}
 function updateSendButton(){btnSend.disabled=!textInput.value.trim().length}
@@ -835,7 +845,7 @@ let turnstileSiteKey='';
 (async()=>{try{const r=await fetch('/api/turnstile/config');const d=await r.json();turnstileEnabled=d.enabled;turnstileSiteKey=d.siteKey}catch{}})();
 const urlRoomId=getRoomFromURL();
 function setLandingContext(isJoining){if(isJoining){document.body.classList.add('is-joining');$('#landing-title').textContent=t('joinTitle');$('#landing-sub').innerHTML=t('joinSub')+'<br><span style="font-size:11px;color:#555">'+t('joinNoPwd')+'</span>';$('#btn-join').textContent=t('btnJoin');$('#btn-join').className='btn btn-primary'}else{document.body.classList.remove('is-joining');$('#landing-title').textContent=t('title');$('#landing-sub').innerHTML=t('subtitle');$('#btn-join').textContent=t('btnJoin');$('#btn-join').className='btn btn-secondary';loadRoomList()}}
-function loadRoomList(){const el=$('#room-list');if(!el)return;const rooms=getSavedRooms();if(!rooms.length){el.innerHTML='<div class="room-list-empty">'+t('noRooms')+'</div>';return}el.innerHTML=rooms.map(r=>'<div class="room-item" data-room="'+r.id+'"><span class="room-id">#'+r.id+'</span><span class="room-meta"></span><button class="btn-join-sm" onclick="enterSavedRoom(\\''+r.id+'\\')">'+t('btnRoomJoin')+'</button></div>').join('')}
+function loadRoomList(){const el=$('#room-list');if(!el)return;const saved=getSavedRooms();const now=Date.now();const active=[];saved.forEach(r=>{if(now-r.joinedAt<(r.ttlHours||1)*3600000){active.push(r)}else{removeRoomLocal(r.id)}});if(!active.length){el.innerHTML='<div class="room-list-empty">'+t('noRooms')+'</div>';return}el.innerHTML=active.map(r=>'<div class="room-item" data-room="'+r.id+'"><span class="room-id">#'+r.id+'</span><span class="room-meta"><span>...</span></span><button class="btn-join-sm" onclick="enterSavedRoom(\\''+r.id+'\\')">'+t('btnRoomJoin')+'</button></div>').join('');active.forEach(r=>{fetch('/api/room/'+r.id+'/info').then(res=>{if(!res.ok){removeRoomLocal(r.id);const item=el.querySelector('[data-room="'+r.id+'"]');if(item)item.remove();if(!el.querySelector('.room-item'))el.innerHTML='<div class="room-list-empty">'+t('noRooms')+'</div>';return}return res.json()}).then(info=>{if(!info)return;const item=el.querySelector('[data-room="'+info.roomId+'"]');if(!item)return;const meta=item.querySelector('.room-meta');const now=Date.now();const remaining=Math.max(0,(info.ttlHours||1)*3600000-(now-info.lastActivityAt));const mins=Math.floor(remaining/60000);const hrs=Math.floor(mins/60);const rem=mins%60;const ts=hrs>0?hrs+'h '+rem+'m':rem+'m';meta.innerHTML='<span>'+info.messageCount+' '+t('roomMsgs')+'</span><span>'+ts+' '+t('roomExpires')+'</span>'}).catch(()=>{})})}
 function removeRoomLocal(id){try{const rooms=getSavedRooms().filter(r=>r.id!==id);localStorage.setItem('sc-rooms',JSON.stringify(rooms))}catch{}}
 function enterSavedRoom(id){const rooms=getSavedRooms();const r=rooms.find(x=>x.id===id);if(r)joinAndEnter(r.id,r.pin);else toast(t('errRoomNotFound'))}
 if(urlRoomId){const saved=getSavedRooms().find(r=>r.id===urlRoomId);if(saved){joinAndEnter(saved.id,saved.pin)}else{setLandingContext(true);const params=new URLSearchParams(location.search);const pin=params.get('pin');if(pin){joinAndEnter(urlRoomId,pin)}else{$('#join-room-id').value=urlRoomId;$('#join-pin').focus()}}}else{setLandingContext(false)}

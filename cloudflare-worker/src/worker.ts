@@ -596,6 +596,7 @@ h1{font-size:24px;font-weight:700}
 </style>
 </head>
 <body>
+<button class="theme-toggle" id="btn-theme" aria-label="Toggle theme">&#x2600;</button>
 <div class="page">
 <a href="/" class="back" id="back-link"></a>
 <h1 id="page-title"></h1>
@@ -727,6 +728,78 @@ body.is-joining #app-footer{display:none!important}
 @keyframes spin{to{transform:rotate(360deg)}}
 .scroll-bottom{position:fixed;bottom:70px;left:50%;transform:translateX(-50%);background:#3a5ae0;color:#fff;border:none;border-radius:20px;padding:6px 16px;font-size:12px;cursor:pointer;z-index:100;display:none;box-shadow:0 2px 8px rgba(0,0,0,.4)}
 .scroll-bottom:hover{background:#4b6bf0}
+
+/* === New Features CSS === */
+/* Drag & drop */
+.drop-overlay{display:none;position:fixed;inset:0;background:rgba(59,90,224,.15);border:3px dashed #3a5ae0;z-index:150;align-items:center;justify-content:center;font-size:18px;color:#3a5ae0;pointer-events:none}
+body.drag-over .drop-overlay{display:flex}
+body.light-theme .drop-overlay{background:rgba(59,90,224,.08)}
+/* Reply quote bar */
+.reply-quote{background:#1a1a1a;border-left:3px solid #3a5ae0;border-radius:4px;padding:6px 10px;margin:0 16px 6px;font-size:12px;color:#888;display:none;align-items:center;gap:8px}
+.reply-quote .quote-text{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.reply-quote .quote-close{background:none;border:none;color:#666;cursor:pointer;font-size:16px;padding:0 4px}
+body.light-theme .reply-quote{background:#f0f0f0;color:#666}
+/* Reply button */
+.msg-row{position:relative}
+.msg-row .reply-btn{display:none;position:absolute;top:-7px;font-size:10px;background:#222;border:1px solid #333;color:#888;border-radius:4px;padding:1px 7px;cursor:pointer;z-index:2}
+.msg-row.other .reply-btn{left:4px}
+.msg-row.mine .reply-btn{right:4px}
+.msg-row:hover .reply-btn{display:block}
+body.light-theme .msg-row .reply-btn{background:#eee;border-color:#ccc;color:#666}
+/* Markdown */
+.msg-bubble strong{font-weight:700}
+.msg-bubble em{font-style:italic}
+.msg-bubble code{background:rgba(255,255,255,.1);padding:1px 5px;border-radius:3px;font-family:monospace;font-size:.9em}
+.msg-bubble pre{background:#111;border:1px solid #2a2a2a;border-radius:6px;padding:8px 12px;overflow-x:auto;margin:4px 0}
+.msg-bubble pre code{background:none;padding:0;font-size:12px}
+body.light-theme .msg-bubble code{background:rgba(0,0,0,.06)}
+body.light-theme .msg-bubble pre{background:#f0f0f0;border-color:#ddd}
+/* Theme toggle button */
+.theme-toggle{position:fixed;top:12px;left:16px;z-index:100;width:30px;height:30px;font-size:15px;background:#222;border:1px solid #333;color:#888;border-radius:8px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.theme-toggle:hover{color:#ccc}
+body.light-theme .theme-toggle{background:#eee;border-color:#ccc;color:#666}
+body.light-theme .theme-toggle:hover{color:#333}
+/* Light theme overrides */
+body.light-theme{background:#f5f5f5;color:#222}
+body.light-theme .header{background:#fff;border-color:#ddd}
+body.light-theme .landing .sub{color:#666}
+body.light-theme .card{background:#fff;border-color:#ddd}
+body.light-theme .card label{color:#666}
+body.light-theme .card input,.card select{background:#f5f5f5;border-color:#ccc;color:#222}
+body.light-theme .btn-secondary{background:#eee;color:#222;border-color:#ccc}
+body.light-theme .btn-secondary:hover{background:#ddd}
+body.light-theme .btn-danger{background:#ffeeee;color:#c44;border-color:#fcc}
+body.light-theme .btn-danger:hover{background:#ffe0e0}
+body.light-theme .divider{color:#999}
+body.light-theme .divider::before,.divider::after{border-color:#ddd}
+body.light-theme .chat{background:#f5f5f5}
+body.light-theme .messages{background:#f5f5f5}
+body.light-theme .messages::-webkit-scrollbar-thumb{background:#ccc}
+body.light-theme .other .msg-bubble{background:#f0f0f0}
+body.light-theme .mine .msg-bubble{background:#dde4ff;color:#222}
+body.light-theme .msg-sender{color:#888}
+body.light-theme .msg-time{color:#999}
+body.light-theme .msg-bubble .file-attach{background:#f5f5f5}
+body.light-theme .file-attach .file-name{color:#333}
+body.light-theme .file-attach .file-size{color:#999}
+body.light-theme .input-area{background:#fff;border-color:#ddd}
+body.light-theme .input-area textarea{background:#f5f5f5;border-color:#ccc;color:#222}
+body.light-theme .btn-icon{background:#eee;border-color:#ccc;color:#666}
+body.light-theme .btn-icon:hover{background:#ddd}
+body.light-theme .empty-hint{color:#ccc}
+body.light-theme .app-footer{background:linear-gradient(transparent,#f5f5f5 50%)}
+body.light-theme .app-footer a{color:#999}
+body.light-theme .header .room-tag{background:#e8ecff;color:#3a5ae0}
+body.light-theme .header .ttl-info{color:#999}
+body.light-theme .modal{background:#fff;border-color:#ddd}
+body.light-theme .modal .link-row input{background:#f5f5f5;border-color:#ccc;color:#222}
+body.light-theme .modal .hint{color:#999}
+body.light-theme .modal .pin-display{color:#c96}
+body.light-theme .toast{background:#333;color:#fff}
+body.light-theme .room-item{background:#fff;border-color:#ddd}
+body.light-theme .room-item:hover{border-color:#3a5ae0}
+body.light-theme .room-item .room-meta{color:#999}
+body.light-theme .room-list-empty{color:#ccc}
 </style>
 </head>
 <body>
@@ -773,6 +846,7 @@ body.is-joining #app-footer{display:none!important}
 <div class="messages" id="messages">
 <div class="empty-hint" id="empty-hint"><span data-i18n="emptyHint">&#x1f44b; Send a message to start chatting</span><br><span style="font-size:11px" data-i18n="emptySub">Text, images, files | Files auto-upload on selection | Ctrl+V to paste image</span></div>
 </div>
+<div class="reply-quote" id="reply-quote"><span class="quote-text" id="quote-text"></span><button class="quote-close" id="quote-close">&times;</button></div>
 <div class="input-area">
 <button class="btn-icon" id="btn-attach" title="&#x1f4ce;" aria-label="Attach file">&#x1f4ce;</button>
 <textarea id="text-input" rows="1" data-i18n-ph="phInput" placeholder="Type a message... (Enter to send)"></textarea>
@@ -796,20 +870,36 @@ body.is-joining #app-footer{display:none!important}
 </div>
 </div>
 </div>
+<div class="drop-overlay" id="drop-overlay">Drop files here</div>
 <div class="app-footer" id="app-footer"><a href="/about" data-i18n="footerAbout">About</a><span>|</span><a href="/privacy" data-i18n="footerPrivacy">Privacy</a><span>|</span><a href="https://github.com/ruodeng/chat" target="_blank">GitHub</a></div>
 <button class="scroll-bottom" id="scroll-bottom">&#x2193; New messages</button>
 <input type="file" id="file-input" multiple>
 <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"><\/script>
 <script id="i18n-data" type="application/json">${JSON.stringify(TRANSLATIONS)}<\/script>
 <script>
+let theme=(()=>{try{return localStorage.getItem('theme')||'dark'}catch{return'dark'}})();if(theme==='light'){document.body.classList.add('light-theme');$('#btn-theme').innerHTML='&#x263D;'}else{$('#btn-theme').innerHTML='&#x2600;'}$('#btn-theme').addEventListener('click',()=>{theme=theme==='dark'?'light':'dark';document.body.classList.toggle('light-theme',theme==='light');$('#btn-theme').innerHTML=theme==='light'?'&#x263D;':'&#x2600;';try{localStorage.setItem('theme',theme)}catch{}});
 const T=JSON.parse(document.getElementById('i18n-data').textContent);
 const lang=(navigator.language||navigator.browserLanguage||'en').toLowerCase();
 const t=k=>(T[lang]||T[lang.split('-')[0]]||T.en)[k]||T.en[k]||k;
 function translateError(d){if(d.errorCode){const m=(k,p)=>{let s=t(k);for(const[k2,v]of Object.entries(p))s=s.replace('{'+k2+'}',v);return s};switch(d.errorCode){case'CREATE_COOLDOWN':return m('errCreateCooldown',{s:d.wait});case'CREATE_BLACKLISTED':case'CREATE_RATE_LIMIT':return m('errCreateBlacklisted',{m:d.remaining||60});case'JOIN_COOLDOWN':return m('errCooldown',{s:d.wait});case'JOIN_BLACKLISTED':case'JOIN_RATE_LIMIT':return m('errBlacklisted',{m:d.remaining||30});case'CREATE_NEED_VERIFY':case'JOIN_NEED_VERIFY':return t('errNeedVerify');case'VERIFY_FAILED':return t('errVerifyFail');case'WRONG_PIN':return d.remaining!=null?m('errWrongAttempts',{n:d.remaining}):t('toastPinError');case'ROOM_NOT_FOUND':return t('errRoomNotFound');case'EMPTY_MESSAGE':return t('errEmptyMsg');case'FILE_NOT_FOUND':return t('errFileNotFound');case'MESSAGE_TOO_LONG':return t('errMessageTooLong');case'FILE_TOO_LARGE':return t('errFileTooLarge')}}return d.error||t('toastNetError')}
 document.querySelectorAll('[data-i18n]').forEach(el=>{const k=el.getAttribute('data-i18n');if(T.en[k])el.innerHTML=t(k)});
 document.querySelectorAll('[data-i18n-ph]').forEach(el=>{const k=el.getAttribute('data-i18n-ph');if(T.en[k])el.placeholder=t(k)});
-let roomId=null,roomPin=null,roomTtl=1,myName='',lastTs=0,renderedIds=new Set(),pollingTimer=null,joinFailCount=0,turnstileEnabled=false,turnstileToken=null,turnstileWidgetId=null,createCooldownTimer=null,joinCooldownTimer=null,lastActivityAt=0,countdownTimer=null,pollInterval=2000,pollMaxInterval=10000,pollStep=1500,blobUrls=[],fetching=0;
+let roomId=null,roomPin=null,roomTtl=1,myName='',lastTs=0,renderedIds=new Set(),pollingTimer=null,joinFailCount=0,turnstileEnabled=false,turnstileToken=null,turnstileWidgetId=null,createCooldownTimer=null,joinCooldownTimer=null,lastActivityAt=0,countdownTimer=null,pollInterval=2000,pollMaxInterval=10000,pollStep=1500,blobUrls=[],fetching=0,audioCtx=null,replyTarget=null;
 const $=s=>document.querySelector(s),landingView=$('#view-landing'),chatView=$('#view-chat'),messagesEl=$('#messages'),textInput=$('#text-input'),fileInput=$('#file-input'),btnSend=$('#btn-send'),roomTag=$('#room-tag'),shareModal=$('#share-modal');
+// Drag-and-drop
+let dragCounter=0;
+document.addEventListener('dragenter',e=>{e.preventDefault();dragCounter++;if(chatView.classList.contains('active'))document.body.classList.add('drag-over')});
+document.addEventListener('dragleave',e=>{e.preventDefault();dragCounter--;if(dragCounter<=0){dragCounter=0;document.body.classList.remove('drag-over')}});
+document.addEventListener('dragover',e=>{e.preventDefault()});
+document.addEventListener('drop',e=>{e.preventDefault();dragCounter=0;document.body.classList.remove('drag-over');if(!chatView.classList.contains('active'))return;const dfs=e.dataTransfer?.files;if(dfs&&dfs.length){for(const f of dfs)sendFile(f)}});
+// Sound notification
+function playBeep(){try{if(!audioCtx)audioCtx=new(window.AudioContext||window.webkitAudioContext)();const o=audioCtx.createOscillator(),g=audioCtx.createGain();o.type='sine';o.frequency.value=880;g.gain.value=0.08;o.connect(g);g.connect(audioCtx.destination);o.start();setTimeout(()=>{o.stop();g.disconnect()},70)}catch{}}
+// Markdown parser
+function parseMarkdown(tx){tx=escapeHtml(tx);tx=tx.replace(/\\*\\*(.+?)\\*\\*/g,'<strong>$1</strong>');tx=tx.replace(/\\*(.+?)\\*/g,'<em>$1</em>');tx=tx.replace(/\x60(.+?)\x60/g,'<code>$1</code>');return tx}
+// Reply functions
+function showReply(id,sender,tx){replyTarget=id;$('#quote-text').textContent=sender+': '+(tx||'(file)');$('#reply-quote').style.display='flex';textInput.focus()}
+$('#quote-close').addEventListener('click',()=>{replyTarget=null;$('#reply-quote').style.display='none'});
+
 function toast(m){let tEl=$('.toast');if(!tEl){tEl=document.createElement('div');tEl.className='toast';document.body.appendChild(tEl)}tEl.textContent=m;tEl.classList.add('show');clearTimeout(tEl._tid);tEl._tid=setTimeout(()=>tEl.classList.remove('show'),1800)}
 function resetPolling(){pollInterval=2000;clearInterval(pollingTimer);pollingTimer=setInterval(fetchMessages,pollInterval)}
 function getRoomFromURL(){const m=location.pathname.match(/^\\/room\\/([a-z0-9]+)/);if(m)return m[1];return null}
@@ -837,17 +927,18 @@ shareModal.addEventListener('click',e=>{if(e.target===shareModal)shareModal.clas
 $('#btn-copy-link').addEventListener('click',()=>{const link=$('#share-link').value;const text=t('chatTitle')+': '+link+'\\nPIN: '+roomPin;navigator.clipboard.writeText(text).then(()=>toast(t('toastCopied')))});
 $('#btn-attach').addEventListener('click',()=>fileInput.click());
 fileInput.addEventListener('change',async()=>{const files=[...fileInput.files];fileInput.value='';for(const f of files)await sendFile(f)});
-document.addEventListener('paste',e=>{if(document.activeElement===textInput)return;if(!chatView.classList.contains('active'))return;const items=e.clipboardData?.items;if(!items)return;for(const item of items){if(item.type.startsWith('image/')){e.preventDefault();sendFile(item.getAsFile())}}});
+document.addEventListener('paste',e=>{if(document.activeElement===textInput)return;if(!chatView.classList.contains('active'))return;const items=e.clipboardData?.items;if(!items)return;for(const item of items){if(item.type.startsWith('image/')){e.preventDefault();sendFile(item.getAsFile())}else if(item.kind==='file'){e.preventDefault();sendFile(item.getAsFile())}}});
 async function sendFile(file){const inputArea=$('.input-area');inputArea.classList.add('uploading');const fd=new FormData();fd.append('pin',roomPin);fd.append('sender',myName);fd.append('file',file);try{const res=await fetch('/api/room/'+roomId+'/send',{method:'POST',body:fd});if(!res.ok){const d=await res.json().catch(()=>({}));toast(translateError(d))}else{lastActivityAt=Date.now();resetPolling();fetchMessages()}}catch{toast(t('toastNetError'))}inputArea.classList.remove('uploading')}
 function updateSendButton(){btnSend.disabled=!textInput.value.trim().length}
 textInput.addEventListener('input',()=>{updateSendButton();textInput.style.height='auto';textInput.style.height=Math.min(textInput.scrollHeight,100)+'px'});
-async function sendMessage(){const text=textInput.value.trim();if(!text)return;btnSend.disabled=true;textInput.value='';textInput.style.height='auto';updateSendButton();const fd=new FormData();fd.append('pin',roomPin);fd.append('sender',myName);fd.append('text',text);try{const res=await fetch('/api/room/'+roomId+'/send',{method:'POST',body:fd});if(!res.ok)toast(t('toastSendFail'));else{lastActivityAt=Date.now();resetPolling();fetchMessages()}}catch{toast(t('toastNetError'))}btnSend.disabled=false}
+async function sendMessage(){const text=textInput.value.trim();if(!text)return;if(replyTarget){text='~'+replyTarget+'~\n'+text;replyTarget=null;$('#reply-quote').style.display='none'}btnSend.disabled=true;textInput.value='';textInput.style.height='auto';updateSendButton();const fd=new FormData();fd.append('pin',roomPin);fd.append('sender',myName);fd.append('text',text);try{const res=await fetch('/api/room/'+roomId+'/send',{method:'POST',body:fd});if(!res.ok)toast(t('toastSendFail'));else{lastActivityAt=Date.now();resetPolling();fetchMessages()}}catch{toast(t('toastNetError'))}btnSend.disabled=false}
 btnSend.addEventListener('click',sendMessage);
 textInput.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMessage()}});
-async function fetchMessages(){if(fetching||!roomId)return;fetching=1;try{const res=await fetch('/api/room/'+roomId+'/messages?since='+lastTs,{headers:{'X-Room-Pin':roomPin}});fetching=0;if(res.status===403||res.status===404){const d=await res.json();toast(translateError(d));return}const data=await res.json();if(data.lastActivityAt){lastActivityAt=data.lastActivityAt;if(data.ttlHours)roomTtl=data.ttlHours}const list=data.messages||data;if(list.length){const hint=messagesEl.querySelector('.empty-hint');if(hint)hint.remove();const wasAtBottom=messagesEl.scrollHeight-messagesEl.scrollTop-messagesEl.clientHeight<80;for(const msg of list){if(renderedIds.has(msg.id))continue;renderedIds.add(msg.id);if(msg.createdAt>lastTs)lastTs=msg.createdAt;renderMessage(msg)}if(wasAtBottom)messagesEl.scrollTop=messagesEl.scrollHeight;pollInterval=2000;clearInterval(pollingTimer);pollingTimer=setInterval(fetchMessages,pollInterval)}else{if(pollInterval<pollMaxInterval){pollInterval=Math.min(pollInterval+pollStep,pollMaxInterval);clearInterval(pollingTimer);pollingTimer=setInterval(fetchMessages,pollInterval)}}}catch{fetching=0;if(pollInterval<pollMaxInterval){pollInterval=Math.min(pollInterval+pollStep,pollMaxInterval);clearInterval(pollingTimer);pollingTimer=setInterval(fetchMessages,pollInterval)}}}
+async function fetchMessages(){if(fetching||!roomId)return;fetching=1;try{const res=await fetch('/api/room/'+roomId+'/messages?since='+lastTs,{headers:{'X-Room-Pin':roomPin}});fetching=0;if(res.status===403||res.status===404){const d=await res.json();toast(translateError(d));return}const data=await res.json();if(data.lastActivityAt){lastActivityAt=data.lastActivityAt;if(data.ttlHours)roomTtl=data.ttlHours}const list=data.messages||data;if(list.length){const hint=messagesEl.querySelector('.empty-hint');if(hint)hint.remove();const wasAtBottom=messagesEl.scrollHeight-messagesEl.scrollTop-messagesEl.clientHeight<80;for(const msg of list){if(renderedIds.has(msg.id))continue;renderedIds.add(msg.id);if(msg.createdAt>lastTs)lastTs=msg.createdAt;renderMessage(msg);if(document.visibilityState==='hidden')playBeep()}if(wasAtBottom)messagesEl.scrollTop=messagesEl.scrollHeight;pollInterval=2000;clearInterval(pollingTimer);pollingTimer=setInterval(fetchMessages,pollInterval)}else{if(pollInterval<pollMaxInterval){pollInterval=Math.min(pollInterval+pollStep,pollMaxInterval);clearInterval(pollingTimer);pollingTimer=setInterval(fetchMessages,pollInterval)}}}catch{fetching=0;if(pollInterval<pollMaxInterval){pollInterval=Math.min(pollInterval+pollStep,pollMaxInterval);clearInterval(pollingTimer);pollingTimer=setInterval(fetchMessages,pollInterval)}}}
 async function fetchFileBlob(url){const res=await fetch(url,{headers:{'X-Room-Pin':roomPin}});if(!res.ok)throw new Error('fetch failed');const blob=await res.blob();const u=URL.createObjectURL(blob);blobUrls.push(u);return u}
 function downloadFile(msgId,fileName){fetch('/api/room/'+roomId+'/file/'+msgId,{headers:{'X-Room-Pin':roomPin}}).then(r=>{if(!r.ok)throw new Error();return r.blob()}).then(blob=>{const a=document.createElement('a');const u=URL.createObjectURL(blob);blobUrls.push(u);a.href=u;a.download=fileName||'download';document.body.appendChild(a);a.click();document.body.removeChild(a);setTimeout(()=>{const i=blobUrls.indexOf(u);if(i>=0)blobUrls.splice(i,1);URL.revokeObjectURL(u)},60000)}).catch(()=>toast(t('errFileNotFound')))}
-function renderMessage(msg){const isMine=msg.sender===myName,row=document.createElement('div');row.className='msg-row '+(isMine?'mine':'other');row.id='m-'+msg.id;const ts=new Date(msg.createdAt).toLocaleTimeString(navigator.language||'en',{hour:'2-digit',minute:'2-digit'});let bp=[];if(msg.text)bp.push(escapeHtml(msg.text));if(msg.hasFile){const u='/api/room/'+roomId+'/file/'+msg.id;if(msg.type==='image'){bp.push('<img alt="'+escapeHtml(msg.fileName||'image')+'" loading="lazy" data-file-url="'+u+'">')}else{const sz=msg.fileSize?formatSize(msg.fileSize):'';bp.push('<div class="file-attach"><span class="file-icon">&#x1f4c4;</span><div class="file-info"><span class="file-name">'+escapeHtml(msg.fileName||'file')+'</span>'+(sz?'<span class="file-size">'+sz+'</span>':'')+'</div><a href="javascript:void(0)" data-download="'+msg.id+'" data-filename="'+escapeHtml(msg.fileName||'file')+'">Download</a></div>')}}row.innerHTML='<div class="msg-sender">'+escapeHtml(msg.sender)+'</div><div class="msg-bubble">'+bp.join('<div style="margin:4px 0"></div>')+'</div><div class="msg-time">'+ts+'</div>';messagesEl.appendChild(row);row.querySelectorAll('img[data-file-url]').forEach(img=>{fetchFileBlob(img.getAttribute('data-file-url')).then(url=>{img.src=url}).catch(()=>{img.alt='Failed to load'})});row.querySelectorAll('a[data-download]').forEach(a=>{a.addEventListener('click',()=>{downloadFile(a.dataset.download,a.dataset.filename)})})}
+function renderMessage(msg){const isMine=msg.sender===myName,row=document.createElement('div');row.className='msg-row '+(isMine?'mine':'other');row.id='m-'+msg.id;const ts=new Date(msg.createdAt).toLocaleTimeString(navigator.language||'en',{hour:'2-digit',minute:'2-digit'});let bp=[];if(msg.text)bp.push(parseMarkdown(msg.text));if(msg.hasFile){const u='/api/room/'+roomId+'/file/'+msg.id;if(msg.type==='image'){bp.push('<img alt="'+escapeHtml(msg.fileName||'image')+'" loading="lazy" data-file-url="'+u+'">')}else{const sz=msg.fileSize?formatSize(msg.fileSize):'';bp.push('<div class="file-attach"><span class="file-icon">&#x1f4c4;</span><div class="file-info"><span class="file-name">'+escapeHtml(msg.fileName||'file')+'</span>'+(sz?'<span class="file-size">'+sz+'</span>':'')+'</div><a href="javascript:void(0)" data-download="'+msg.id+'" data-filename="'+escapeHtml(msg.fileName||'file')+'">Download</a></div>')}}row.innerHTML='<div class="msg-sender">'+escapeHtml(msg.sender)+'</div><div class="msg-bubble">'+bp.join('<div style="margin:4px 0"></div>')+'</div><div class="msg-time">'+ts+'</div>';messagesEl.appendChild(row);row.querySelectorAll('img[data-file-url]').forEach(img=>{fetchFileBlob(img.getAttribute('data-file-url')).then(url=>{img.src=url}).catch(()=>{img.alt='Failed to load'})});const rb=document.createElement('span');rb.className='reply-btn';rb.textContent='↩';rb.addEventListener('click',e=>{e.stopPropagation();showReply(msg.id,msg.sender,msg.text||'(file)')});row.appendChild(rb);
+row.querySelectorAll('a[data-download]').forEach(a=>{a.addEventListener('click',()=>{downloadFile(a.dataset.download,a.dataset.filename)})})}
 function escapeHtml(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML}
 function formatSize(b){if(!b)return'';if(b<1024)return b+' B';if(b<1024*1024)return(b/1024).toFixed(1)+' KB';return(b/(1024*1024)).toFixed(1)+' MB'}
 let turnstileSiteKey='';

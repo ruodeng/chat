@@ -877,7 +877,6 @@ body.light-theme .room-list-empty{color:#ccc}
 <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"><\/script>
 <script id="i18n-data" type="application/json">${JSON.stringify(TRANSLATIONS)}<\/script>
 <script>
-let theme=(()=>{try{return localStorage.getItem('theme')||'dark'}catch{return'dark'}})();if(theme==='light'){document.body.classList.add('light-theme');$('#btn-theme').innerHTML='&#x263D;'}else{$('#btn-theme').innerHTML='&#x2600;'}$('#btn-theme').addEventListener('click',()=>{theme=theme==='dark'?'light':'dark';document.body.classList.toggle('light-theme',theme==='light');$('#btn-theme').innerHTML=theme==='light'?'&#x263D;':'&#x2600;';try{localStorage.setItem('theme',theme)}catch{}});
 const T=JSON.parse(document.getElementById('i18n-data').textContent);
 const lang=(navigator.language||navigator.browserLanguage||'en').toLowerCase();
 const t=k=>(T[lang]||T[lang.split('-')[0]]||T.en)[k]||T.en[k]||k;
@@ -886,6 +885,7 @@ document.querySelectorAll('[data-i18n]').forEach(el=>{const k=el.getAttribute('d
 document.querySelectorAll('[data-i18n-ph]').forEach(el=>{const k=el.getAttribute('data-i18n-ph');if(T.en[k])el.placeholder=t(k)});
 let roomId=null,roomPin=null,roomTtl=1,myName='',lastTs=0,renderedIds=new Set(),pollingTimer=null,joinFailCount=0,turnstileEnabled=false,turnstileToken=null,turnstileWidgetId=null,createCooldownTimer=null,joinCooldownTimer=null,lastActivityAt=0,countdownTimer=null,pollInterval=2000,pollMaxInterval=10000,pollStep=1500,blobUrls=[],fetching=0,audioCtx=null,replyTarget=null;
 const $=s=>document.querySelector(s),landingView=$('#view-landing'),chatView=$('#view-chat'),messagesEl=$('#messages'),textInput=$('#text-input'),fileInput=$('#file-input'),btnSend=$('#btn-send'),roomTag=$('#room-tag'),shareModal=$('#share-modal');
+let theme=(()=>{try{return localStorage.getItem('theme')||'dark'}catch{return'dark'}})();if(theme==='light'){document.body.classList.add('light-theme');document.querySelector('#btn-theme').innerHTML='&#x263D;'}else{document.querySelector('#btn-theme').innerHTML='&#x2600;'}document.querySelector('#btn-theme').addEventListener('click',()=>{theme=theme==='dark'?'light':'dark';document.body.classList.toggle('light-theme',theme==='light');document.querySelector('#btn-theme').innerHTML=theme==='light'?'&#x263D;':'&#x2600;';try{localStorage.setItem('theme',theme)}catch{}});
 // Drag-and-drop
 let dragCounter=0;
 document.addEventListener('dragenter',e=>{e.preventDefault();dragCounter++;if(chatView.classList.contains('active'))document.body.classList.add('drag-over')});

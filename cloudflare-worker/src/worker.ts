@@ -634,7 +634,8 @@ body.is-joining .back-link{display:inline!important}
 .chat{display:none;flex:1;flex-direction:column;height:100%}
 .chat.active{display:flex}
 .header{padding:10px 16px;background:#1a1a1a;border-bottom:1px solid #2a2a2a;display:flex;align-items:center;gap:10px;flex-shrink:0}
-.header .title{font-size:16px;font-weight:600;white-space:nowrap}
+.header .title{font-size:16px;font-weight:600;white-space:nowrap;cursor:pointer;transition:opacity .15s}
+.header .title:hover{opacity:.7}
 .header .room-tag{font-size:11px;color:#3a5ae0;background:#1a1a30;padding:3px 8px;border-radius:4px;font-family:monospace}
 .header .ttl-info{font-size:10px;color:#666;white-space:nowrap}
 .header .spacer{flex:1}
@@ -743,7 +744,7 @@ body.is-joining #app-footer{display:none!important}
 </div>
 <div class="chat" id="view-chat">
 <div class="header">
-<span class="title" data-i18n="chatTitle">Chat Room</span>
+<a href="/" class="title" data-i18n="chatTitle" style="text-decoration:none;color:inherit">Chat Room</a>
 <span class="room-tag" id="room-tag"></span>
 <span class="ttl-info" id="ttl-info"></span>
 <span class="spacer"></span>

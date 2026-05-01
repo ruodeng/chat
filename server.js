@@ -330,11 +330,12 @@ app.post('/api/room/:roomId/send', upload.single('file'), (req, res) => {
 
   const ip = clientIp(req);
   const sender = (req.body.sender || '').trim().slice(0, 30) || assignName(room, ip);
-  assignName(room, ip); // ensure assignment is saved
   const text = req.body.text?.trim() || null;
   const file = req.file;
 
   if (!text && !file) return res.status(400).json({ error: 'Empty message', errorCode: 'EMPTY_MESSAGE' });
+  if (text && text.length > 10000) return res.status(400).json({ error: 'Message too long', errorCode: 'MESSAGE_TOO_LONG' });
+  if (file && file.size > 100 * 1024 * 1024) return res.status(400).json({ error: 'File too large (max 100MB)', errorCode: 'FILE_TOO_LARGE' });
 
   let type = 'text';
   if (file) {
@@ -391,12 +392,13 @@ app.get('/api/room/:roomId/file/:msgId', (req, res) => {
   if (!msg || !msg.fileData) return res.status(404).json({ error: 'Not found', errorCode: 'NOT_FOUND' });
 
   const data = Buffer.from(msg.fileData, 'base64');
+  const safeName = (msg.fileName || 'file').replace(/[\x00-\x1f"\\]/g, '_').replace(/[^\x20-\x7e]/g, '_');
   if (msg.type === 'image') {
     res.set('Content-Type', msg.fileMime);
-    res.set('Content-Disposition', `inline; filename="${msg.fileName}"`);
+    res.set('Content-Disposition', `inline; filename="${safeName}"`);
   } else {
     res.set('Content-Type', msg.fileMime);
-    res.set('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(msg.fileName)}`);
+    res.set('Content-Disposition', `attachment; filename="${safeName}"; filename*=UTF-8''${encodeURIComponent(safeName)}`);
   }
   res.send(data);
 });
